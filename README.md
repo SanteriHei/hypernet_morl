@@ -3,7 +3,7 @@ multi-objective reinforcement learning
 
 ## TODO
 - [] Create simple yet functional test bench
-   - [] Setup logging (via logging.DictConfig)
+   - [x] Setup logging (via logging.DictConfig)
    - [] Setup MLFlow
    - [] Setup Hydra (seems to be the only tool actually allows to configure
      cli + configuration file easily)

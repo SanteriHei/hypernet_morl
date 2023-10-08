@@ -1,0 +1,23 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = false
+name = "pip_conf_index_global"
+
+[packages]
+tomli = "*"
+mo-gymnasium = {extras = ["mujoco"], version = "*"}
+hydra-core = "*"
+omegaconf = "*"
+numpy = "*"
+mlflow = "*"
+pymoo = "*"
+
+[dev-packages]
+python-lsp-server = {extras = ["all"], version = "*"}
+python-lsp-ruff = "*"
+ipython = "*"
+"ruamel.yaml" = "*"
+
+[requires]
+python_version = "3.10"
+python_full_version = "3.10.12"
