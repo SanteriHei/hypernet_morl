@@ -4,19 +4,19 @@ verify_ssl = false
 name = "pip_conf_index_global"
 
 [packages]
-tomli = "*"
 mo-gymnasium = {extras = ["mujoco"], version = "*"}
 hydra-core = "*"
 omegaconf = "*"
 numpy = "*"
 mlflow = "*"
 pymoo = "*"
+"ruamel.yaml" = "*"
 
 [dev-packages]
 python-lsp-server = {extras = ["all"], version = "*"}
 python-lsp-ruff = "*"
 ipython = "*"
-"ruamel.yaml" = "*"
+tomli = "*"
 
 [requires]
 python_version = "3.10"

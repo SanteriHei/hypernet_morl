@@ -2,11 +2,12 @@ import logging
 import logging.config
 import pathlib
 
-import tomli
+from ruamel.yaml import YAML
+
 
 _CONFIG_SET: bool = False
 
-_CONFIG_PATH = pathlib.Path(__file__).parents[2] / "configs" / "log_config.toml"
+_CONFIG_PATH = pathlib.Path(__file__).parents[2] / "configs" / "log_config.yml"
 
 
 def get_logger(logger_name: str) -> logging.Logger:
@@ -108,9 +109,10 @@ def _maybe_set_config(path: str | pathlib.Path):
     if not path.exists() or not path.is_file():
         raise FileNotFoundError((f"{str(path)!r} does not point to a valid "
                                  "logging configuration file!"))
+    yaml = YAML(typ="safe")
 
     # rb is required to ensure correct decoding
-    with path.open("rb") as ifstream:
-        conf = tomli.load(ifstream)
+    with path.open("r") as ifstream:
+        conf = yaml.load(ifstream)
     logging.config.dictConfig(conf)
     _CONFIG_SET = True

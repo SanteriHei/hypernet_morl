@@ -1,0 +1,16 @@
+# Parameters for the MLFlow session
+session:
+  tracking_uri: ""
+  experiment_name: "msc_bench"
+  run_name: ???
+
+  
+  # Parameters for the training environment
+train:
+  n_timesteps: 1_000_000
+  env_id: "mo-hopper-v4"
+  save_path: "results/run_"
+
+hyperparams: 
+  alpha: 0.05
+  gamma: 0.99
