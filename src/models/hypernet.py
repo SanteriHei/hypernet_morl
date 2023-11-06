@@ -7,7 +7,7 @@ from typing import Callable, Iterable, Tuple
 import torch
 from torch import nn
 
-from .utils import nets
+from .utils import common, nets
 
 
 @dataclass
@@ -47,9 +47,6 @@ class HypernetConfig:
     head_hidden_dim: int The hidden dimension of the "Heads". Default 1024.
     activation_fn: Callable | str: The activation function used in the dynamic
         network. Default "relu"
-
-
-
     """
     resblock_arch: Tuple[ResblockConfig, ...]
     layer_dims: Tuple[int, ...]
@@ -64,7 +61,7 @@ def _apply_hyper_init(
         weight_shape: Tuple[int, ...],
         bias_shape: Tuple[int, ...],
         method: str = "bias",
-        init_type: str = "xavier_uniform", 
+        init_type: str = "xavier_uniform",
 ):
 
     match init_type:
@@ -88,7 +85,7 @@ def _apply_hyper_init(
     if method == "bias":
         init_fn(bias_weights)
     else:
-        init_fn(weights) 
+        init_fn(weights)
 
     for head in modules:
         head.init_weights(weights, bias_weights)
@@ -123,7 +120,6 @@ class Head(nn.Module):
         self._bias_layer = nn.Linear(input_dim, output_dim)
         self._scale_layer = nn.Linear(input_dim, output_dim)
 
-
     def init_weights(self, weights: torch.Tensor, bias_weights: torch.Tensor):
         """Initialize the weights for the network from the given weights.
 
@@ -143,7 +139,6 @@ class Head(nn.Module):
 
             self._scale_layer.weight.data.copy_(weights)
             self._weight_layer.bias.data.copy_(bias_weights)
-        
 
     def forward(
             self, x: torch.Tensor
@@ -330,7 +325,7 @@ class HyperNet(nn.Module):
                  )
         ]
 
-        for in_dim, out_dim in nets.iter_pairwise(config.layer_dims[1:]):
+        for in_dim, out_dim in common.iter_pairwise(config.layer_dims[1:]):
             self._heads.append(
                 Head(
                     input_dim=in_dim, output_dim=out_dim,

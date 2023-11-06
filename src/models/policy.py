@@ -9,12 +9,12 @@ from torch import nn
 
 from .utils import nets
 
-_LOG_SIG_MAX: int = 2
-_LOG_SIG_MIN: int = -20
-_EPS: float = 1e-6
-
 
 class GaussianPolicy(nn.Module):
+
+    _LOG_SIG_MAX: int = 2
+    _LOG_SIG_MIN: int = -20
+    _EPS: float = 1e-6
 
     def __init__(
             self,
@@ -65,20 +65,74 @@ class GaussianPolicy(nn.Module):
             torch.tensor((action_space.high - action_space.low) / 2.0)
         )
 
-    def forward(self, obs: torch.Tensor, prefs: torch.Tensor):
+    def forward(
+            self, obs: torch.Tensor, prefs: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """The forward pass of the policy network
+
+        Parameters
+        ----------
+        obs : torch.Tensor
+            The observation from the environment.
+        prefs : torch.Tensor
+            The current preferences over the objectives.
+
+        Returns
+        -------
+        Tuple[torch.Tensor, torch.Tensor]
+            The mean and logarithm of the standard deviation for the 
+            Gaussian distribution
+        """
         h = self._network(torch.cat((obs, prefs), dim=-1))
 
         mean = self._mean_layer(h)
         log_std = self._log_std_layer(h)
         # Apply clamping as in the original paper
-        log_std = torch.clamp(log_std, min=_LOG_SIG_MIN, max=_LOG_SIG_MAX)
+        log_std = torch.clamp(
+                log_std, min=GaussianPolicy._LOG_SIG_MIN,
+                max=GaussianPolicy._LOG_SIG_MAX
+        )
         return mean, log_std
 
-    def take_action(self, obs: torch.Tensor, prefs: torch.Tensor):
+    def take_action(
+            self, obs: torch.Tensor, prefs: torch.Tensor
+    ) -> torch.Tensor:
+        """Takes an action using the current policy.
+
+        Parameters
+        ----------
+        obs : torch.Tensor
+            The observation from the environment.
+        prefs : torch.Tensor
+            The current preferences over the objectives
+
+        Returns
+        -------
+        torch.Tensor
+            The chosen action.
+        """
         mean, __ = self.forward(obs, prefs)
         return torch.tanh(mean) * self.action_scale + self.action_bias
 
-    def sample_action(self, obs: torch.Tensor, prefs: torch.Tensor):
+    def sample_action(
+            self, obs: torch.Tensor, prefs: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Samples an action from the current policy using the reparmeterization
+        trick. NOTE: this action is not deterministic.
+
+        Parameters
+        ----------
+        obs : torch.Tensor
+            The observation from the environment
+        prefs : torch.Tensor
+            The current preferences over the objectives
+
+        Returns
+        -------
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+            Returns the taken action, the mean and the (log) std for the 
+            used Gaussian distribution.
+        """
         mean, log_std = self.forward(obs, prefs)
         std = log_std.exp()
 
@@ -92,7 +146,9 @@ class GaussianPolicy(nn.Module):
         log_prob = normal_distr.log_prob(x_t)
 
         # TODO: is this correct?
-        log_prob -= torch.log(self._action_scale * (1 - y_t.pow(2)) + _EPS)
+        log_prob -= torch.log(
+                self._action_scale * (1 - y_t.pow(2)) + GaussianPolicy._EPS
+        )
         log_prob = log_prob.sum(axis=1, keepdim=True)
         log_prob = log_prob.clamp(-1e3, 1e3)
 
