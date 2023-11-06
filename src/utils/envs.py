@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, Tuple
 
 import gymnasium as gym
+import mo_gymnasium as mo_gym
 import numpy as np
 import numpy.typing as npt
 import torch
@@ -73,3 +74,26 @@ class TorchWrapper(gym.Wrapper, gym.utils.RecordConstructorArgs):
         obs = torch.from_numpy(obs).to(self.device)
         rewards = torch.from_numpy(rewards).to(self.device)
         return obs, rewards, terminated, truncated, info
+
+
+def create_env(env_id: str, device: str | torch.device) -> gym.Env:
+    """Create new gymnasium enviroment and apply the neccessary wrappers to the 
+    enviroment.
+
+    Parameters
+    ----------
+    env_id : str
+        The id of the environment.
+    device : str | torch.device
+        The device to which the data should be moved to from the environment.
+
+    Returns
+    -------
+    gym.Env
+        The desired enviroment with appropriate wrappers.
+    """
+    env = mo_gym.make(env_id)
+    if isinstance(device, str):
+        device = torch.device(device)
+    env = TorchWrapper(env, device=device)
+    return env
