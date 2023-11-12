@@ -1,0 +1,6 @@
+defaults:
+  - base_session
+
+experiment_name: "test_exp"
+experiment_group: "test"
+run_name: "test-run"

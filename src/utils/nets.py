@@ -1,15 +1,16 @@
 """ Some utilities for building neural networks """
 
-from typing import Callable, Tuple
+import warnings
+from typing import Callable, Iterable, Tuple
 
 import torch
 import torch.nn.functional as F
-from torch import nn
-from torch import optim
+from torch import nn, optim
 
 from . import common
 
 
+@torch.no_grad()
 def polyak_update(src: nn.Module, dst: nn.Module, tau: float = 0.995):
     """Polyak update that updates the parameters of the destination 
     with the source using soft-updates.
@@ -27,6 +28,61 @@ def polyak_update(src: nn.Module, dst: nn.Module, tau: float = 0.995):
     for src_param, dst_param in zip(src.parameters(), dst.parameters()):
         dst_param.data.copy_(
             dst_param.data * (1.0 - tau) + src_param.data * tau)
+
+
+@torch.no_grad()
+def init_layers(
+        layer: torch.nn.Module,
+        init_type: str = "xavier_uniform",
+        weight_gain: float = 1.0,
+        bias_const: float = 0.0
+):
+    """Initialize layers of a torch.nn module.
+
+    Parameters
+    ----------
+    layer : torch.nn.Module
+        The layer to initialize
+    init_type : str
+        The type of initialization. Default "xavier_uniform"
+    weight_gain : float
+        The gain of the weights.
+    bias_const : float
+        The constant used for initializing the bias.
+    """
+    init_fn = get_initialization_fn(init_type)
+    if isinstance(layer, nn.Linear):
+        init_fn(layer.weight, gain=weight_gain)
+        nn.init.constant_(layer.bias, bias_const)
+
+@torch.no_grad
+def hyper_init(
+        modules: Iterable["Head"],
+        weight_shape: Tuple[int, ...],
+        bias_shape: Tuple[int, ...],
+        method: str = "bias",
+        init_type: str = "xavier_uniform"
+):
+
+    # TODO: How this is actually applied? How would one apply different
+    # initializations for each preferences in any way? 
+
+    if method not in ("bias", "weight"):
+        raise ValueError((f"Unknown initialization method {method!r} for "
+                          "hyper-init! Should be either 'bias' or 'weight'"))
+    init_fn = get_initialization_fn(init_type)
+
+    # Generate the common weights for each layer
+    bias = torch.zeros(bias_shape)
+    weights = torch.zeros(weight_shape)
+
+    if method == "bias":
+        init_fn(bias)
+    else:
+        init_fn(weights)
+
+    for head in modules:
+        head.init_weights(weights, bias)
 
 
 def create_mlp(
@@ -68,8 +124,6 @@ def create_mlp(
     if isinstance(activation_fn, str):
         activation_fn = get_activation_module(activation_fn)
 
-    assert isinstance(activation_fn, nn.Module)
-
     layers = []
     architecture = (input_dim, *network_arch)
 
@@ -82,6 +136,58 @@ def create_mlp(
         layers.append(activation_fn())
 
     return nn.Sequential(*layers)
+
+def apply_dynamic_pass(
+        x: torch.Tensor, *,
+        weights: Tuple[torch.Tensor, ...], biases: Tuple[torch.Tensor, ...],
+        scales: Tuple[torch.Tensor, ...], apply_activation: Tuple[bool],
+        activation_fn: str | Callable = "relu", 
+):
+    out = x
+    iter = zip(weights, biases, scales, apply_activation)
+    if isinstance(activation_fn, str):
+        activation_fn = get_activation_fn(activation_fn)
+
+    assert callable(activation_fn),\
+        f"Activation function is not callable! ({activation_fn})"
+
+    for w, b, scale, use_activation in iter:
+        in_var = out.unsqueeze(2) if out.ndim == 2 else out
+        out =  torch.bmm(w, in_var) * scale + b
+        if use_activation:
+            out = activation_fn(out)
+    return out
+
+
+def get_initialization_fn(init_name: str) -> Callable:
+    """Get an initialization function by name.
+
+    Parameters
+    ----------
+    init_name : str
+        The name of the initialization function.
+
+    Returns
+    -------
+    Callable
+        The corresponding initialization function
+    """
+    match init_name:
+        case "xavier_uniform":
+            init_fn = nn.init.xavier_uniform_
+        case "xavier_normal":
+            init_fn = nn.init.xavier_normal_
+        case "orthogonal":
+            init_fn = nn.init.orthogonal_
+        case "kaiming_uniform":
+            init_fn = nn.init.kaiming_uniform_
+        case "kaiming_normal":
+            init_fn = nn.init.kaiming_normal_
+        case _:
+            warnings.warn((f"Unknown initialization {init_name!r}, "
+                           "initializing to ones instead"))
+            init_fn = nn.init.ones_
+    return init_fn
 
 
 def get_activation_fn(fn_name: str) -> Callable:
@@ -128,9 +234,9 @@ def get_activation_module(fn_name: str) -> torch.nn.Module:
 
     match fn_name:
         case "relu":
-            return torch.nn.ReLu
+            return torch.nn.ReLU
         case "leaky-relu":
-            return torch.nn.LeakyReLu
+            return torch.nn.LeakyReLU
         case "tanh":
             return torch.nn.Tanh
         case "sigmoid":
@@ -154,7 +260,7 @@ def get_optim_by_name(optim_name: str) -> optim.Optimizer:
     """
     match optim_name:
         case "adam":
-            return optim.Ada
+            return optim.Adam
         case "rms_prop":
             return optim.RMSprop
         case "adamax":

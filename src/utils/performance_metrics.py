@@ -1,7 +1,7 @@
 # NOTE: ADD LICENSE HERE
 
-# The performance metrics are taken from morl-baselines
-# (www.github.com/LucasAlegre/morl-baselines)
+# The performance metrics are taken from morl-baselines to ensure
+# reproducability (www.github.com/LucasAlegre/morl-baselines)
 import copy
 from typing import Callable, List
 
@@ -30,8 +30,8 @@ def hypervolume(ref_point: npt.NDArray, points: List[npt.ArrayLike]) -> float:
         The hypervolume indicator
     """
     return pymoo.indicators.hv.HV(
-        ref_point=ref_point * -1)(np.array(points) * -1
-                                  )
+        ref_point=ref_point * -1
+    )(np.array(points) * -1)
 
 
 def sparsity(pareto_front: List[np.ndarray]) -> float:

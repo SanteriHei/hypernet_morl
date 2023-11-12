@@ -1,16 +1,11 @@
-# Parameters for the MLFlow session
-session:
-  tracking_uri: ""
-  experiment_name: "msc_bench"
-  run_name: ???
+defaults:
+  - base_config
+  - training_cfg: train
+  - session_cfg: session
+  - policy_cfg: policy
+  - hypernet_cfg: hypernet
+  - msa_hyper_cfg: msa_hyper
+  - _self_
 
-  
-  # Parameters for the training environment
-train:
-  n_timesteps: 1_000_000
-  env_id: "mo-hopper-v4"
-  save_path: "results/run_"
-
-hyperparams: 
-  alpha: 0.05
-  gamma: 0.99
+seed: 0
+device: "cpu"

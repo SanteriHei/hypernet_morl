@@ -71,8 +71,8 @@ class TorchWrapper(gym.Wrapper, gym.utils.RecordConstructorArgs):
         if isinstance(action, torch.Tensor):
             action = action.cpu().numpy()
         obs, rewards, terminated, truncated, info = self.env.step(action)
-        obs = torch.from_numpy(obs).to(self.device)
-        rewards = torch.from_numpy(rewards).to(self.device)
+        obs = torch.from_numpy(obs).float().to(self.device)
+        rewards = torch.from_numpy(rewards).float().to(self.device)
         return obs, rewards, terminated, truncated, info
 
 
@@ -97,3 +97,9 @@ def create_env(env_id: str, device: str | torch.device) -> gym.Env:
         device = torch.device(device)
     env = TorchWrapper(env, device=device)
     return env
+
+def create_vec_envs(env_id: str, device: str | torch.device, n_envs: int = 5):
+    envs = mo_gym.MOSyncVectorEnv(
+            (lambda env_id: mo_gym.make(env_id) for _ in range(n_envs))
+    )
+    return envs

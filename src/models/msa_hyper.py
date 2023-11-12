@@ -1,53 +1,51 @@
 """ Define the MSA-hyper algorithm"""
 
+import dataclasses
 import itertools
-from dataclasses import dataclass
+import pathlib
+from typing import Tuple
 
 import torch
 import torch.nn.functional as F
 
-from ..utils import common, nets
+from .. import structured_configs as sconfigs
+from ..utils import common, configs, nets
 from .hypernet import HyperNet
 from .policy import GaussianPolicy
 
 
-@dataclass
-class MSAHyperConfig:
-    n_networks: int
-    alpha: float
-    tau: float
-    critic_optim: str = "adam"
-    critic_lr: float = 3e-4
-    policy_optim: str = "adam"
-    policy_lr: float = 3e-4
-    device: str = "cpu"
-
-
 class MSAHyper:
-    def __init__(self, config: MSAHyperConfig):
+    def __init__(
+            self,
+            cfg: sconfigs.MSAHyperConfig, *,
+            policy_cfg: sconfigs.PolicyConfig,
+            hypernet_cfg: sconfigs.HypernetConfig,
+    ):
         """Create a MSA-hyper network, that uses a modified CAPQL, with
         hypernetworks for (hopefully) generalizing the learned information
         from policies.
 
         Parameters
         ----------
-        config : MSAHyperConfig
+        config : structured_configs.MSAHyperConfig
             The configuration for the MSAHyper.
         """
-        self._config = config
-        if isinstance(self._config.device, str):
-            self._config.device = torch.device(self._config.device)
-
-        self._policy = GaussianPolicy(
-            self._config.policy_config
+        self._cfg = configs.as_structured_config(cfg)
+        self._device = (
+            torch.device(self._cfg.device)
+            if isinstance(self._cfg.device, str) else self._cfg.device
         )
 
+        self._policy = GaussianPolicy(policy_cfg).to(self._device)
+
         self._critics = [
-            HyperNet(self._config.critic_config) for _ in range(self._config.n_networks)
+            HyperNet(hypernet_cfg).to(self._device)
+            for _ in range(self._cfg.n_networks)
         ]
 
         self._critic_targets = [
-            HyperNet(self._config.critic_config) for _ in range(self._config.n_networks)
+            HyperNet(hypernet_cfg).to(self._device)
+            for _ in range(self._cfg.n_networks)
         ]
 
         # Note: The target parameters are not updated through direct gradient
@@ -58,22 +56,80 @@ class MSAHyper:
             for param in critic_target.parameters():
                 param.requires_grad_(False)
 
-        self._critic_optim = nets.get_optim_by_name(self._config.critic_optim)(
-            itertools.chain(critic.parameters() for critic in self._critics),
-            lr=self._config.critic_lr
+        self._critic_optim = nets.get_optim_by_name(self._cfg.critic_optim)(
+            itertools.chain(*[critic.parameters() for critic in self._critics]),
+            lr=self._cfg.critic_lr
         )
 
-        self._policy_optim = nets.get_optim_by_name(self._config.policy_optim)(
-            self._policy.parameters(), lr=self._config.policy_lr
+        self._policy_optim = nets.get_optim_by_name(self._cfg.policy_optim)(
+            self._policy.parameters(), lr=self._cfg.policy_lr
         )
 
-    def update(self, replay_sample: common.ReplaySample):
+    @property
+    def device(self) -> torch.device:
+        return self._device
+
+    def save(self, dir_path: pathlib.Path | str):
+        """Saves the current state of the MSA-hyper and its submodules.
+
+        Parameters
+        ----------
+        dir_path : pathlib.Path | str
+            The path to the directory where the model will be saved to.
+        """
+        dir_path = pathlib.Path(dir_path)
+        dir_path.mkdir(parents=True, exist_ok=True)
+
+        state = {}
+        # NOTE: Will likely fail if the config is actually duck-typed
+        # omegaconf.DictConfig
+
+        # Critics
+        for i, critic in enumerate(self._critics):
+            state[f"critic_{i}"] = {
+                "state": critic.state_dict(),
+                "config": dataclasses.asdict(critic.config)
+            }
+
+        # Critic targets
+        for i, critic in enumerate(self._critic_targets):
+            state[f"critic_target_{i}"] = {
+                "state": critic.state_dict(),
+                "config": dataclasses.asdict(critic.config)
+            }
+
+        # Policy
+        state["policy"] = {
+            "state": self._policy.state_dict(),
+            "config": self._policy.config
+        }
+
+        state["msa_hyper"] = {
+            "policy_optim": self._policy_optim.state_dict(),
+            "critic_optim": self._critic_optim.state_dict(),
+            "config": dataclasses.as_dict(self._cfg)
+        }
+        torch.save(state, dir_path / "msa_hyper.tar")
+
+    def take_action(
+            self, obs: torch.Tensor, prefs: torch.Tensor
+    ) -> torch.Tensor:
+        return self._policy.take_action(obs, prefs)
+
+    def update(
+            self, replay_sample: common.ReplaySample
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Update the Q-networks and the policy network.
 
         Parameters
         ----------
         replay_sample : common.ReplaySample
             The sample from the Replay buffer.
+
+        Returns
+        -------
+        Tuple[torch.Tensor, torch.Tensor]
+            The loss of the critic and the policy.
         """
         replay_sample = replay_sample.as_tensors(self._device)
         # Get the Q-target values
@@ -82,33 +138,34 @@ class MSAHyper:
                 self._policy.sample_action(
                     replay_sample.next_obs, replay_sample.prefs
                 )
+
             state_value_targets = torch.stack([
                 target_net(
                     replay_sample.obs, replay_sample.actions, replay_sample.prefs
                 ) for target_net in self._critic_targets
             ])
-
-            # Find the minimum values among the network
+            # Find the minimum values among the networks and add the rewards
+            # to the minimum q-values.
+            # (third line in CAPQL pseudo-code training loop)
             min_targets = (
-                state_value_targets.min(dim=1)
-                - self._config.alpha * next_state_log_prob
+                torch.min(state_value_targets, dim=0).values
+                - self._cfg.alpha * next_state_log_prob.view(-1, 1)
             )
 
             target_q_values = (
-                replay_sample.rewards + self._config.gamma *
-                (1 - replay_sample.dones) * min_targets
+                replay_sample.rewards + self._cfg.gamma *
+                (1 - replay_sample.dones.unsqueeze(1)) * min_targets
             ).detach()
 
         # Update the networks
         critic_loss = self._update_q_network(target_q_values, replay_sample)
-        policy_loss = self._update_policy()
+        policy_loss = self._update_policy(replay_sample)
 
         # Lastly, update the q-target networks
         for critic, critic_target in zip(self._critics, self._critic_targets):
-            nets.polyak_update(critic, critic_target, self._config.tau)
+            nets.polyak_update(critic, critic_target, self._cfg.tau)
 
-        print(f"critic loss | {critic_loss}")
-        print(f"Policy loss | {policy_loss}")
+        return critic_loss, policy_loss
 
     def _update_q_network(
             self, target_q_values: torch.Tensor,
@@ -133,12 +190,12 @@ class MSAHyper:
             critic(
                 replay_sample.obs, replay_sample.actions,
                 replay_sample.prefs
-            ) for critic in self._critics()
+            ) for critic in self._critics
         ]
-        critic_loss = (1 / self._config.num_nets) * sum(F.mse_loss(
-            q_value, target_q_values) for q_value in q_vals
+        critic_loss = (1 / self._cfg.n_networks) * sum(
+                F.mse_loss(q_value, target_q_values) for q_value in q_vals
         )
-        critic_loss.backwards()
+        critic_loss.backward()
         self._critic_optim.step()
         return critic_loss
 
@@ -165,12 +222,12 @@ class MSAHyper:
             target_net(replay_sample.obs, action, replay_sample.prefs)
             for target_net in self._critic_targets
         ])
-        min_q_val = q_values.min(dim=0)
+        min_q_val = torch.min(q_values, dim=0).values
         min_q_val = (min_q_val * replay_sample.prefs).sum(dim=-1, keepdim=True)
 
-        policy_loss = ((self._config.alpha * log_prob) - min_q_val).mean()
+        policy_loss = ((self._cfg.alpha * log_prob) - min_q_val).mean()
 
         self._policy_optim.zero_grad()
-        policy_loss.backwards()
+        policy_loss.backward()
         self._policy_optim.step()
         return policy_loss

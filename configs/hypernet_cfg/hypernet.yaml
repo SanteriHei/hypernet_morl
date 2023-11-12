@@ -1,0 +1,41 @@
+defaults:
+  - base_hypernet
+
+
+layer_dims: 
+  - 256
+  - 3
+
+# These will be automatically filled when the environment is created.
+reward_dim: ???
+obs_dim: ???
+action_dim: ???
+head_hidden_dim: 1024
+activation_fn: "relu"
+resblock_arch:
+    - n_resblocks: 2
+      # This will be filled automatically with reward_dim + obs_dim
+      input_dim: ???
+      output_dim: 256
+      activation_fn: "relu"
+      network_arch:
+        - 256
+        - 256
+    - n_resblocks: 2
+      input_dim: 256 
+      output_dim: 512
+      activation_fn: "relu"
+      network_arch: 
+        - 512
+        - 512
+    - n_resblocks: 2
+      input_dim: 512
+      output_dim: 1024
+      activation_fn: "relu"
+      network_arch:
+        - 1024
+        - 1024
+
+
+
+

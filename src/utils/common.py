@@ -106,12 +106,44 @@ class WeightSampler:
         samples = samples / torch.norm(samples, dim=1, keepdim=True)
 
         # Calculate the angle of the sampled vector, and shift it
-        s_angle = torch.rand(n_samples, 1) * self.angle
+        s_angle = torch.rand(n_samples, 1) * self._angle
 
-        w_sample = torch.tan(s_angle) * samples + self._w.view(-1, 1)
+        w_sample = torch.tan(s_angle) * samples + self._w.view(1, -1)
         w_sample = w_sample / torch.norm(w_sample, dim=1, keepdim=True, p=1)
-        return w_sample
+        return w_sample.float()
 
+
+class WeightSamplerAngleV2:
+    """Sample weight vectors from normal distribution."""
+
+    def __init__(self, rwd_dim, angle, w=None):
+        """Initialize the weight sampler."""
+        self.rwd_dim = rwd_dim
+        self.angle = angle
+        if w is None:
+            w = torch.ones(rwd_dim)
+        w = w / torch.norm(w)
+        self.w = w
+
+    def sample(self, n_sample):
+        """Sample n_sample weight vectors from normal distribution."""
+        s = torch.normal(torch.zeros(n_sample, self.rwd_dim))
+
+        # remove fluctuation on dir w
+        s = s - (s @ self.w).view(-1, 1) * self.w.view(1, -1)
+
+        # normalize it
+        s = s / torch.norm(s, dim=1, keepdim=True)
+
+        # sample angle
+        s_angle = torch.rand(n_sample, 1) * self.angle
+
+        # compute shifted vector from w
+        w_sample = torch.tan(s_angle) * s + self.w.view(1, -1)
+
+        w_sample = w_sample / torch.norm(w_sample, dim=1, keepdim=True, p=1)
+
+        return w_sample.float()
 
 @dataclass
 class ReplaySample:
@@ -156,32 +188,32 @@ class ReplaySample:
             to tensors in the preferred device.
         """
         if isinstance(self.obs, np.ndarray):
-            obs = torch.from_numpy(self.obs).to(device)
+            obs = torch.from_numpy(self.obs).float().to(device)
         else:
             obs = self.obs.detach().clone().to(device)
 
         if isinstance(self.actions, np.ndarray):
-            actions = torch.from_numpy(self.actions).to(device)
+            actions = torch.from_numpy(self.actions).float().to(device)
         else:
             actions = self.actions.detach().clone().to(device)
 
         if isinstance(self.rewards, np.ndarray):
-            rewards = torch.from_numpy(self.rewards).to(device)
+            rewards = torch.from_numpy(self.rewards).float().to(device)
         else:
             rewards = self.rewards.detach().clone().to(device)
 
         if isinstance(self.prefs, np.ndarray):
-            prefs = torch.from_numpy(self.prefs).to(device)
+            prefs = torch.from_numpy(self.prefs).float().to(device)
         else:
             prefs = self.prefs.detach().clone().to(device)
 
         if isinstance(self.next_obs, np.ndarray):
-            next_obs = torch.from_numpy(self.next_obs).to(device)
+            next_obs = torch.from_numpy(self.next_obs).float().to(device)
         else:
             next_obs = self.next_obs.detach().clone().to(device)
 
         if isinstance(self.dones, np.ndarray):
-            dones = torch.from_numpy(self.dones).to(device)
+            dones = torch.from_numpy(self.dones).float().to(device)
         else:
             dones = self.dones.detach().clone().to(device)
 

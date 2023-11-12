@@ -1,0 +1,8 @@
+defaults:
+  - base_policy
+
+activation_fn: "relu"
+network_arch: 
+  - 256
+  - 256
+  - 256

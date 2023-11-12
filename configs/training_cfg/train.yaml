@@ -1,0 +1,7 @@
+defaults: 
+  - base_training
+
+n_timesteps: 1_000
+log_every_nth: 50
+env_id: "mo-hopper-v4"
+save_path: "test"
