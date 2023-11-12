@@ -11,6 +11,9 @@ numpy = "*"
 mlflow = "*"
 pymoo = "*"
 "ruamel.yaml" = "*"
+torch = "*"
+torchvision = "*"
+torchaudio = "*"
 
 [dev-packages]
 python-lsp-server = {extras = ["all"], version = "*"}
