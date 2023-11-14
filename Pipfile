@@ -14,6 +14,8 @@ pymoo = "*"
 torch = "*"
 torchvision = "*"
 torchaudio = "*"
+wandb = "*"
+tensorboard = "*"
 
 [dev-packages]
 python-lsp-server = {extras = ["all"], version = "*"}

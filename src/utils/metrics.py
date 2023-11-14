@@ -9,10 +9,10 @@ import numpy as np
 import numpy.typing as npt
 import pymoo.indicators.hv
 
-UtilityFunc = Callable[[npt.NDArrayLike, npt.NDArrayLike], float]
+UtilityFunc = Callable[[npt.ArrayLike, npt.ArrayLike], float]
 
 
-def hypervolume(ref_point: npt.NDArray, points: List[npt.ArrayLike]) -> float:
+def get_hypervolume(ref_point: npt.NDArray, points: List[npt.ArrayLike]) -> float:
     """
     Calculates the hypervolume metric for a given set of points and 
     a given reference point (using pymoo)
@@ -34,7 +34,7 @@ def hypervolume(ref_point: npt.NDArray, points: List[npt.ArrayLike]) -> float:
     )(np.array(points) * -1)
 
 
-def sparsity(pareto_front: List[np.ndarray]) -> float:
+def get_sparsity(pareto_front: List[np.ndarray]) -> float:
     """
     Calculates the sparsity metric from PGMORL (insert paper details)
     Note that lower sparsity is better (i.e. we prefer dense approximations)
@@ -62,8 +62,8 @@ def sparsity(pareto_front: List[np.ndarray]) -> float:
     return sparsity_value
 
 
-def expected_utility(
-        front: List[npt.NDArray], weights_set: List[npt.NDArray],
+def get_expected_utility(
+        front: List[npt.NDArray], prefs_set: List[npt.NDArray],
         utility_fn: UtilityFunc = np.dot
 ) -> float:
     """
@@ -76,8 +76,8 @@ def expected_utility(
     ----------
     pareto_front : List[npt.NDArray]
         The current pareto-front approximation.
-    weights_set : List[npt.NDArray]
-        The weights used for the utility calculation.
+    prefs_set: List[npt.NDArray]
+        The preferences used for the utility calculation.
     utility_fn : Callable[[npt.NDArrayLike, npt.NDArrayLike], float], Optional
         The utility function. Default np.dot
 
@@ -87,7 +87,7 @@ def expected_utility(
         The eum metric.
     """
     maxs = []
-    for weights in weights_set:
+    for weights in prefs_set:
         scalarized_front = np.array(
             [utility_fn(weights, point) for point in front])
         maxs.append(np.max(scalarized_front))

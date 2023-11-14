@@ -1,6 +1,7 @@
 defaults:
   - base_session
 
-experiment_name: "test_exp"
-experiment_group: "test"
-run_name: "test-run"
+entity_name: "santeriheiskanen"
+project_name: "msc_bench"
+experiment_group: "test-msa-hyper"
+run_name: "test-run-0"

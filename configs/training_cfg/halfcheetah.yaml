@@ -1,0 +1,18 @@
+defaults:
+  - base_training
+
+n_timesteps: 2_000_000
+n_random_steps: 1000
+env_id: "mo-halfcheetah-v4"
+save_path: ???
+batch_size: 128
+buffer_capacity: 1e6
+angle_deg: 22.5
+eval_every_nth: 200
+log_every_nth: 100
+n_eval_episodes: 5
+n_eval_prefs: 1000
+ref_point:
+  - -100.0
+  - -100.0
+

@@ -2,10 +2,9 @@
 with Hydra"""
 
 
-from typing import Any
+from typing import Any, List
 
 import mo_gymnasium as mo_gym
-import numpy as np
 import omegaconf
 from hydra.core.config_store import ConfigStore
 
@@ -24,6 +23,20 @@ def register_resolvers():
 
     omegaconf.OmegaConf.register_new_resolver(
         name="env.reward_dim", resolver=_resolve_reward_dim, use_cache=True
+    )
+
+    omegaconf.OmegaConf.register_new_resolver(
+        name="env.action_space_low", resolver=_resolve_action_space_low, 
+        use_cache=True
+    )
+
+    omegaconf.OmegaConf.register_new_resolver(
+        name="env.action_space_high", resolver=_resolve_action_space_high, 
+        use_cache=True
+    )
+
+    omegaconf.OmegaConf.register_new_resolver(
+            name="sum", resolver=lambda x, y: x + y
     )
 
 def register_configs(cs: ConfigStore):
@@ -103,7 +116,7 @@ def _resolve_reward_dim(env_id: str) -> int:
     Parameters
     ----------
     env_id : str
-        The if of the used environment.
+        The id of the used environment.
 
     Returns
     -------
@@ -115,6 +128,41 @@ def _resolve_reward_dim(env_id: str) -> int:
     tmp_env.close()
     return reward_dim
 
+def _resolve_action_space_low(env_id: str) -> List[float]:
+    """Resolve the lower bound of the action space in the used environment.
+
+    Parameters
+    ----------
+    env_id : str
+        The id of the used environment.
+
+    Returns
+    -------
+    List[float]
+        The lower bound for each action component.
+    """
+    tmp_env = mo_gym.make(env_id)
+    action_space_low = tmp_env.action_space.low.tolist()
+    tmp_env.close()
+    return action_space_low
+
+def _resolve_action_space_high(env_id: str) -> List[float]:
+    """Resolve the upper bound of the action space in the used environment.
+
+    Parameters
+    ----------
+    env_id : str
+        The id of the used environment.
+
+    Returns
+    -------
+    List[float]
+        The upper bound for each action component.
+    """
+    tmp_env = mo_gym.make(env_id)
+    action_space_high = tmp_env.action_space.high.tolist()
+    tmp_env.close()
+    return action_space_high
 
 def as_structured_config(cfg: omegaconf.DictConfig) -> Any:
     """Convert a omegaconf DictConfig into a structured config if the current
@@ -135,47 +183,66 @@ def as_structured_config(cfg: omegaconf.DictConfig) -> Any:
     return cfg
 
 
-def fill_missing_fields(cfg: omegaconf.DictConfig) -> omegaconf.DictConfig:
-    """Fill any missing values from the configuration. Mostly used for filling
-    values that require instantiating a gym env.
+def validate(cfg: structured_configs.MSAHyperConfig):
+    """Do some validations for the create configurations
 
     Parameters
     ----------
-    cfg : omegaconf.DictConfig
-        The configuration to fill.
-
-    Returns
-    -------
-    omegaconf.DictConfig
-        The configuration with the missing values filled.
+    cfg : structured_configs.MSAHyperConfig
+        The configuration to validate.
     """
-    tmp_env = mo_gym.make(cfg.training_cfg.env_id)
-    reward_dim = tmp_env.get_wrapper_attr("reward_space").shape[0]
-    obs_dim = tmp_env.observation_space.shape[0]
-    action_dim = tmp_env.action_space.shape[0]
+    if cfg.hypernet_cfg.reward_dim != len(cfg.training_cfg.ref_point):
+        raise ValueError(("Reward dim and ref-point mismatch! ref-point "
+                          f"{cfg.training_cfg.ref_point} vs "
+                          f"{cfg.hypernet_cfg.reward_dim}"))
+    
+    missing_items = omegaconf.OmegaConf.missing_keys(cfg)
+    if len(missing_items) > 0:
+        raise ValueError(("Missing values for the following "
+                          f"keys {missing_items}"))
 
-    cfg.hypernet_cfg.reward_dim = reward_dim
-    cfg.hypernet_cfg.obs_dim = obs_dim
-    cfg.hypernet_cfg.action_dim = action_dim
-    if (
-            len(cfg.hypernet_cfg.resblock_arch) > 0 and
-            omegaconf.OmegaConf.is_missing(
-                cfg.hypernet_cfg.resblock_arch[0], "input_dim"
-            )
-    ):
-        cfg.hypernet_cfg.resblock_arch[0].input_dim = obs_dim + reward_dim
-    cfg.policy_cfg.obs_dim = obs_dim
-    cfg.policy_cfg.reward_dim = reward_dim
-    cfg.policy_cfg.output_dim = action_dim
-    cfg.policy_cfg.action_space_high = tmp_env.action_space.high.tolist()
-    cfg.policy_cfg.action_space_low = tmp_env.action_space.low.tolist()
 
-    if omegaconf.OmegaConf.is_missing(cfg.training_cfg, "angle"):
-        cfg.training_cfg.angle = np.pi * (22.5/100)
-
-    tmp_env.close()
-    assert len(missing_items := omegaconf.OmegaConf.missing_keys(cfg)) == 0, \
-        ("Expected that all missing items are filled, found items "
-         f"{missing_items} without a value")
-
-    return cfg
+# def fill_missing_fields(cfg: omegaconf.DictConfig) -> omegaconf.DictConfig:
+#     """Fill any missing values from the configuration. Mostly used for filling
+#     values that require instantiating a gym env.
+# 
+#     Parameters
+#     ----------
+#     cfg : omegaconf.DictConfig
+#         The configuration to fill.
+# 
+#     Returns
+#     -------
+#     omegaconf.DictConfig
+#         The configuration with the missing values filled.
+#     """
+#     tmp_env = mo_gym.make(cfg.training_cfg.env_id)
+#     reward_dim = tmp_env.get_wrapper_attr("reward_space").shape[0]
+#     obs_dim = tmp_env.observation_space.shape[0]
+#     action_dim = tmp_env.action_space.shape[0]
+# 
+#     cfg.hypernet_cfg.reward_dim = reward_dim
+#     cfg.hypernet_cfg.obs_dim = obs_dim
+#     cfg.hypernet_cfg.action_dim = action_dim
+#     if (
+#             len(cfg.hypernet_cfg.resblock_arch) > 0 and
+#             omegaconf.OmegaConf.is_missing(
+#                 cfg.hypernet_cfg.resblock_arch[0], "input_dim"
+#             )
+#     ):
+#         cfg.hypernet_cfg.resblock_arch[0].input_dim = obs_dim + reward_dim
+#     cfg.policy_cfg.obs_dim = obs_dim
+#     cfg.policy_cfg.reward_dim = reward_dim
+#     cfg.policy_cfg.output_dim = action_dim
+#     cfg.policy_cfg.action_space_high = tmp_env.action_space.high.tolist()
+#     cfg.policy_cfg.action_space_low = tmp_env.action_space.low.tolist()
+# 
+#     if omegaconf.OmegaConf.is_missing(cfg.training_cfg, "angle"):
+#         cfg.training_cfg.angle = np.pi * (22.5/100)
+# 
+#     tmp_env.close()
+#     assert len(missing_items := omegaconf.OmegaConf.missing_keys(cfg)) == 0, \
+#         ("Expected that all missing items are filled, found items "
+#          f"{missing_items} without a value")
+# 
+#     return cfg

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import warnings
-from typing import Callable, Dict, Iterable, Tuple
+from typing import Callable, Dict, Tuple
 
 import numpy as np
 import torch
@@ -13,55 +13,13 @@ from .. import structured_configs
 from ..utils import common, configs, nets
 
 
-def _apply_hyper_init(
-        modules: Iterable["Head"],
-        weight_shape: Tuple[int, ...],
-        bias_shape: Tuple[int, ...],
-        method: str = "bias",
-        init_type: str = "xavier_uniform",
-):
-    """Apply hyper-init initialization to the heads of the hypernetwork. 
-    Hypernetworks in Meta-Reinforcement learning, Beck et al, CORL 2022
-    http://arxiv.org/abs/2210.11348 for more details.
-
-    Parameters
-    ----------
-    modules : Iterable["Head"]
-        The modules to initialize.
-    weight_shape : Tuple[int, ...]
-        The shapes of the weights.
-    bias_shape : Tuple[int, ...]
-        The shape of bias.
-    method : str
-        The method of the initializing. Can be either "bias" or "weights"
-    init_type : str
-        The used initialization function.
-    """
-    match init_type:
-        case "xavier_uniform":
-            init_fn = nn.init.xavier_uniform_
-        case "xavier_normal":
-            init_fn = nn.init.xavier_normal_
-        case "orthogonal":
-            init_fn = nn.init.orthogonal_
-        case "kaiming_uniform":
-            init_fn = nn.init.kaiming_uniform_
-        case "kaiming_normal":
-            init_fn = nn.init.kaiming_normal_
-        case _:
-            print(f"Unknown choice {init_type!r}, using ones instead")
-            init_fn = nn.init.ones_
-
-    # Generate the common initialization weights for the modules
-    bias_weights = torch.zeros(bias_shape)
-    weights = torch.zeros(weight_shape)
-    if method == "bias":
-        init_fn(bias_weights)
-    else:
-        init_fn(weights)
-
-    for head in modules:
-        head.init_weights(weights, bias_weights)
+def _apply_hyper_init(layer: nn.Module):
+    if isinstance(layer, nn.Linear):
+        # Bit hacky to use private function here! Should probably calculate
+        # these manually
+        fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(layer.weight)
+        bound = 1.0 / math.sqrt(2 * fan_in)
+        torch.nn.init.uniform_(layer.weight, -bound, bound)
 
 
 class Head(nn.Module):
@@ -257,7 +215,7 @@ class Embedding(nn.Module):
         self._hypernet = self._construct_network(
             resblock_arch
         )
-        self.apply(nets.init_layers)
+        self.apply(_apply_hyper_init)
 
     def forward(
             self, obs: torch.Tensor, weights: torch.Tensor
@@ -266,7 +224,7 @@ class Embedding(nn.Module):
         that is used to generated the weights for a linear layer.
 
         Parameters
-        ----------Hypernetworks in Meta-Reinforcement Learning 
+        ----------
         state : torch.Tensor
             The current state of the environment.
         weights : torch.tensor
@@ -411,7 +369,7 @@ class HyperNet(nn.Module):
         # Do not apply activation on the last layer
         # (i.e. create mask where last item is false)
         apply_activation = np.arange(len(weights)) < len(weights) - 1
-        out = nets.apply_dynamic_pass(
+        out = nets.target_network(
             action,  weights=weights, biases=biases, scales=scales,
             apply_activation=apply_activation, activation_fn=self._activation_fn
         )

@@ -95,6 +95,7 @@ def create_env(env_id: str, device: str | torch.device) -> gym.Env:
     env = mo_gym.make(env_id)
     if isinstance(device, str):
         device = torch.device(device)
+    env = mo_gym.MORecordEpisodeStatistics(env)
     env = TorchWrapper(env, device=device)
     return env
 

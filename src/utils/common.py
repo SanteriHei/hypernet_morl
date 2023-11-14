@@ -7,9 +7,24 @@ from typing import Iterable
 
 import numpy as np
 import numpy.typing as npt
-import pymoo
+import pymoo.util.ref_dirs
 import torch
 
+
+def deg_to_rad(angle: float) -> float:
+    """Convert angle from degrees to radians.
+
+    Parameters
+    ----------
+    angle : float
+        The angle in degrees.
+
+    Returns
+    -------
+    float
+        The corresponding angle in radians.
+    """
+    return (angle/180) * np.pi
 
 def iter_pairwise(x: Iterable) -> Iterable:
     """Iterate over pairs (s0, s1), (s1, s2), ... (sN-1, sN)
@@ -60,7 +75,8 @@ class WeightSampler:
 
     def __init__(
             self, reward_dim: int, angle: int,
-            w: npt.NDArray | torch.Tensor | None = None
+            w: npt.NDArray | torch.Tensor | None = None,
+            device: str | torch.device | None = None
     ):
         """Create a simple weight sampler that can be used to 
         sample normalized weights from a (possibly) restricted part of the 
@@ -74,15 +90,23 @@ class WeightSampler:
             The angle that is use to restrict the weight sampling.
         w : [TODO:parameter]
             [TODO:description]
+        device: str | torch.device | None, optional
         """
         self._reward_dim = reward_dim
         self._angle = angle
+
+        self._device = torch.device("cpu" if device is None else device)
 
         if w is None:
             w = torch.ones(self._reward_dim)
         elif isinstance(w, npt.ndarray):
             w = torch.from_numpy(w)
         self._w = w / torch.norm(w)
+
+    @property
+    def device(self) -> torch.device:
+        """ Return the currently used device """
+        return self._device
 
     def sample(self, n_samples: int) -> torch.Tensor:
         """Sample weight from the specified weight space.
@@ -110,40 +134,8 @@ class WeightSampler:
 
         w_sample = torch.tan(s_angle) * samples + self._w.view(1, -1)
         w_sample = w_sample / torch.norm(w_sample, dim=1, keepdim=True, p=1)
-        return w_sample.float()
+        return w_sample.float().to(self._device)
 
-
-class WeightSamplerAngleV2:
-    """Sample weight vectors from normal distribution."""
-
-    def __init__(self, rwd_dim, angle, w=None):
-        """Initialize the weight sampler."""
-        self.rwd_dim = rwd_dim
-        self.angle = angle
-        if w is None:
-            w = torch.ones(rwd_dim)
-        w = w / torch.norm(w)
-        self.w = w
-
-    def sample(self, n_sample):
-        """Sample n_sample weight vectors from normal distribution."""
-        s = torch.normal(torch.zeros(n_sample, self.rwd_dim))
-
-        # remove fluctuation on dir w
-        s = s - (s @ self.w).view(-1, 1) * self.w.view(1, -1)
-
-        # normalize it
-        s = s / torch.norm(s, dim=1, keepdim=True)
-
-        # sample angle
-        s_angle = torch.rand(n_sample, 1) * self.angle
-
-        # compute shifted vector from w
-        w_sample = torch.tan(s_angle) * s + self.w.view(1, -1)
-
-        w_sample = w_sample / torch.norm(w_sample, dim=1, keepdim=True, p=1)
-
-        return w_sample.float()
 
 @dataclass
 class ReplaySample:
@@ -230,6 +222,8 @@ class ReplayBuffer:
             obs_dim: int,
             action_dim: int,
             reward_dim: int,
+            use_torch: bool = True,
+            device: str | torch.device | None = None,
             seed: int | None = None
     ):
         """Create a FIFO style replay buffer.
@@ -248,17 +242,52 @@ class ReplayBuffer:
         seed : int | None
             The seed used for the random number generator. Defaulf None
         """
-        self._obs = np.empty((capacity, obs_dim))
-        self._actions = np.empty((capacity, action_dim))
-        self._rewards = np.empty((capacity, reward_dim))
-        self._prefs = np.empty((capacity, reward_dim))
-        self._next_obs = np.empty((capacity, obs_dim))
-        self._dones = np.empty((capacity,), dtype=bool)
+        if use_torch:
+            self._device = torch.device("cpu" if device is None else device)
+            self._obs = torch.empty(
+                    (capacity, obs_dim), dtype=torch.float32
+            ).to(device)
+            self._actions = torch.empty(
+                    (capacity, action_dim), dtype=torch.float32
+            ).to(device)
+            self._rewards = torch.empty(
+                    (capacity, reward_dim), dtype=torch.float32
+            ).to(device)
+
+            self._prefs = torch.empty(
+                    (capacity, reward_dim), dtype=torch.float32
+            ).to(device)
+            self._next_obs = torch.empty(
+                    (capacity, obs_dim), dtype=torch.float32
+            ).to(device)
+        
+            # Store as float's to ensure that one can use them in basic
+            # arithmetic operations
+            self._dones = torch.empty(
+                    (capacity,), dtype=torch.float32
+            ).to(device)
+
+        else:
+            # defined only for compliance
+            self._device = None
+            self._obs = np.empty((capacity, obs_dim))
+            self._actions = np.empty((capacity, action_dim))
+            self._rewards = np.empty((capacity, reward_dim))
+            self._prefs = np.empty((capacity, reward_dim))
+            self._next_obs = np.empty((capacity, obs_dim))
+            self._dones = np.empty((capacity,), dtype=bool)
 
         self._ptr = 0
         self._len = 0
         self._capacity = capacity
         self._rng = np.random.default_rng(seed)
+    
+    @property
+    def device(self) -> torch.device:
+        if self._device is None:
+            raise AttributeError(("Running buffer in Numpy mode! No concept "
+                                  "of device exists"))
+        return self._device
 
     def append(
             self,
@@ -287,11 +316,11 @@ class ReplayBuffer:
         done : bool
             The state of the episode (i.e. is it finished or not).
         """
-        self._obs[self._ptr] = np.asarray(obs)
-        self._actions[self._ptr] = np.asarray(action)
-        self._rewards[self._ptr] = np.asarray(rewards)
-        self._prefs[self._ptr] = np.asarray(prefs)
-        self._next_obs[self._ptr] = np.asarray(obs)
+        self._obs[self._ptr, ...] = obs
+        self._actions[self._ptr, ...] = action
+        self._rewards[self._ptr, ...] = rewards
+        self._prefs[self._ptr, ...] = prefs
+        self._next_obs[self._ptr, ...] = next_obs
         self._dones[self._ptr] = done
 
         self._ptr = (self._ptr + 1) % self._capacity

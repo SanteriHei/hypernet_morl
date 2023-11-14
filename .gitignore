@@ -164,3 +164,9 @@ outputs/*
 
 # Any logs from the network.
 logs/*
+
+# Any logs from wandb
+wandb/*
+
+# saved models
+results/*

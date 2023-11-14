@@ -1,7 +1,7 @@
 """ Defines all the structured configs for the models """
 
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from omegaconf import MISSING
 
@@ -120,12 +120,14 @@ class SessionConfig:
 
     Attributes
     ----------
+    entity_name: str The name of the entity. Usually the username.
     experiment_name: str The name of the experiment/project.
     experiment_group: str The name of the group of the runs.
     run_name: str The name of current run.
 
     """
-    experiment_name: str = MISSING
+    entity_name: str = MISSING
+    project_name: str = MISSING
     experiment_group: str = MISSING
     run_name: str = MISSING
 
@@ -140,28 +142,45 @@ class TrainingConfig:
         n_random_steps: int The amount of random actions to make during the 
             start of the training before starting to follow the policy.
         env_id: str The environment at which the model is trained at.
-        save_path: str The path where the results will be saved to.
         batch_size: int The batch size used for training the MSA-hyper.
             Default 1000
         buffer_capacity: int The maximum capacity of the buffer. Default 10_000
-        angle: float The angle for the data
+        angle_deg: float The angle for the data (in degrees). Default 22.5
+
+        save_path: str The path where the results will be saved to.
+        log_to_stdout: bool If set to True, data will be logged to stdout/stderr
+            using standard Pythob logging facilities. Default True
+        log_to_wandb: bool If set to True, data will be logged to wandb.
+        Default True
         eval_every_nth: int The frequency at which the trained policy is
             evaluated at. Default 100.
         log_every_nth: int The frequency at which the metrics are logged.
             Default 100.
         n_eval_episodes: int The amount of episodes to evaluate the policy for
             during each evaluation pass in the training
+        n_eval_prefs: int The amount of preferences that are used to evaluate
+            the agent.
     """
+
+    # Simulation env stuff
     n_timesteps: int = 1_000
     n_random_steps: int = 200
     env_id: str = MISSING
-    save_path: str = MISSING
+
+    # buffer parameters
     batch_size: int = 100
     buffer_capacity: int = 10_000
-    angle: float = MISSING
+    angle_deg: float = 22.5
+    
+    # Logging parameters
+    save_path: str = MISSING
+    log_to_stdout: bool = True
+    log_to_wandb: bool = True
     eval_every_nth: int = 100
     log_every_nth: int = 100
     n_eval_episodes: int = 5
+    n_eval_prefs: int = 1000
+    ref_point: List[float] = MISSING
 
 
 @dataclass
@@ -186,3 +205,42 @@ class Config:
     msa_hyper_cfg: MSAHyperConfig = MISSING
     seed: int | None = None
     device: str = "cpu"
+
+
+    def summarize(self) -> Dict[str, Any]:
+        """Summarize the currently used configurations as a single 
+        dict that contains the most relevant options.
+
+        Returns
+        -------
+        Dict[str, Any]
+            The most relevant configuration options.
+        """
+        return {
+            # Training 
+            "env_id": self.training_cfg.env_id,
+            "n_timesteps:": self.training_cfg.n_timesteps,
+            "batch_size": self.training_cfg.batch_size,
+            "buffer_capacity": self.training_cfg.buffer_capacity,
+
+            # MSA-hyper 
+            "n_networks": self.msa_hyper_cfg.n_networks,
+            "alpha": self.msa_hyper_cfg.alpha,
+            "tau": self.msa_hyper_cfg.tau,
+            "gamma": self.msa_hyper_cfg.gamma,
+            "critic_lr": self.msa_hyper_cfg.critic_lr,
+            "critic_optim": self.msa_hyper_cfg.critic_optim,
+            "policy_lr": self.msa_hyper_cfg.policy_lr,
+            "policy_optim": self.msa_hyper_cfg.policy_optim,
+
+            # Policy
+            "policy/network_arch": self.policy_cfg.network_arch,
+            "policy/activation_fn": self.policy_cfg.activation_fn,
+
+            # Hyper-Q net
+            "q-net/layer_dims": self.hypernet_cfg.layer_dims,
+            "q-net/activation_fn": self.hypernet_cfg.activation_fn,
+    
+            # Common stuff
+            "seed": self.seed
+        }

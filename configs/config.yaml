@@ -1,11 +1,11 @@
 defaults:
+  - _self_
   - base_config
   - training_cfg: train
   - session_cfg: session
   - policy_cfg: policy
   - hypernet_cfg: hypernet
   - msa_hyper_cfg: msa_hyper
-  - _self_
 
 seed: 0
 device: "cpu"

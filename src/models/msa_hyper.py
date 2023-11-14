@@ -57,7 +57,8 @@ class MSAHyper:
                 param.requires_grad_(False)
 
         self._critic_optim = nets.get_optim_by_name(self._cfg.critic_optim)(
-            itertools.chain(*[critic.parameters() for critic in self._critics]),
+            itertools.chain(*[critic.parameters()
+                            for critic in self._critics]),
             lr=self._cfg.critic_lr
         )
 
@@ -66,7 +67,12 @@ class MSAHyper:
         )
 
     @property
+    def config(self) -> sconfigs.MSAHyperConfig:
+        return self._cfg
+
+    @property
     def device(self) -> torch.device:
+        """ Get the currently used device """
         return self._device
 
     def save(self, dir_path: pathlib.Path | str):
@@ -107,7 +113,7 @@ class MSAHyper:
         state["msa_hyper"] = {
             "policy_optim": self._policy_optim.state_dict(),
             "critic_optim": self._critic_optim.state_dict(),
-            "config": dataclasses.as_dict(self._cfg)
+            "config": dataclasses.asdict(self._cfg)
         }
         torch.save(state, dir_path / "msa_hyper.tar")
 
@@ -193,7 +199,7 @@ class MSAHyper:
             ) for critic in self._critics
         ]
         critic_loss = (1 / self._cfg.n_networks) * sum(
-                F.mse_loss(q_value, target_q_values) for q_value in q_vals
+            F.mse_loss(q_value, target_q_values) for q_value in q_vals
         )
         critic_loss.backward()
         self._critic_optim.step()

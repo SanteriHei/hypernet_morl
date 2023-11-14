@@ -66,7 +66,6 @@ def hyper_init(
 
     # TODO: How this is actually applied? How would one apply different
     # initializations for each preferences in any way? 
-
     if method not in ("bias", "weight"):
         raise ValueError((f"Unknown initialization method {method!r} for "
                           "hyper-init! Should be either 'bias' or 'weight'"))
@@ -137,12 +136,36 @@ def create_mlp(
 
     return nn.Sequential(*layers)
 
-def apply_dynamic_pass(
+
+def target_network(
         x: torch.Tensor, *,
         weights: Tuple[torch.Tensor, ...], biases: Tuple[torch.Tensor, ...],
         scales: Tuple[torch.Tensor, ...], apply_activation: Tuple[bool],
         activation_fn: str | Callable = "relu", 
-):
+) -> torch.Tensor:
+    """Apply the forward pass of the target network of the hypernetwork.
+    The target network is expected to contain linear layers.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        The input to the network.
+    weights : Tuple[torch.Tensor, ...]
+        The weights of each layer.
+    biases : Tuple[torch.Tensor, ...]
+        The biases of each layer.
+    scales : Tuple[torch.Tensor, ...]
+        The scales for each layer.
+    apply_activation : Tuple[bool]
+        mask indicating if the activation function is called after a layer.
+    activation_fn : str | Callable
+        The activation function to be used after each layer.
+
+    Returns
+    -------
+    torch.Tensor:
+        The output of the target networks forward pass.
+    """
     out = x
     iter = zip(weights, biases, scales, apply_activation)
     if isinstance(activation_fn, str):

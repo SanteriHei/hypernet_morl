@@ -5,7 +5,7 @@ defaults:
 n_networks: 2
 alpha: 0.2
 tau: 0.005
-gamma: 0.995
+gamma: 0.99
 critic_optim: "adam"
 critic_lr: 3e-4
 policy_optim: "adam"

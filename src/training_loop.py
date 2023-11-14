@@ -1,6 +1,6 @@
 import logging
-import pprint
 
+import gymnasium as gym
 import torch
 
 from src.utils import common, envs, evaluation, log
@@ -8,16 +8,26 @@ from src.utils import common, envs, evaluation, log
 from . import structured_configs
 
 
-def train(cfg: structured_configs.Config, agent, logger: logging.Logger):
-    """A common training loop for the mo-gymnasiunm environments.
+def train_agent(cfg: structured_configs.Config, agent):
+    """Train an agent with the specified configuration.
 
     Parameters
     ----------
-    cfg : sconfigs.Config
-        The configuration for the training run.
+    agent : 
+        The agent to train.
+    cfg : structured_configs.Config
+        The configuration for the training.
     """
-    env = envs.create_env(cfg.training_cfg.env_id, cfg.device)
+    training_env = envs.create_env(cfg.training_cfg.env_id, cfg.device)
 
+    if cfg.training_cfg.log_to_wandb:
+        wandb_run = log.setup_wandb(cfg.session_cfg, cfg.summarize())
+    else:
+        wandb_run = None
+
+    logger = log.get_logger("train") if cfg.training_cfg.log_to_stdout else None
+
+    # Construct the relevant buffers
     replay_buffer = common.ReplayBuffer(
         cfg.training_cfg.buffer_capacity,
         obs_dim=cfg.hypernet_cfg.obs_dim,
@@ -25,22 +35,66 @@ def train(cfg: structured_configs.Config, agent, logger: logging.Logger):
         action_dim=cfg.policy_cfg.output_dim,
         seed=cfg.seed
     )
+
     weight_sampler = common.WeightSampler(
         reward_dim=cfg.hypernet_cfg.reward_dim,
-        angle=cfg.training_cfg.angle
+        angle=common.deg_to_rad(cfg.training_cfg.angle),
+        device=agent.device
     )
 
-    obs, info = env.reset(seed=cfg.seed)
+    trained_agent = _gym_training_loop(
+        agent,
+        training_cfg=cfg.training_cfg,
+        replay_buffer=replay_buffer,
+        weight_sampler=weight_sampler,
+        env=training_env,
+        logger=logger,
+        wandb_run=wandb_run,
+        seed=cfg.seed
+    )
+
+    if cfg.training_cfg.save_path is not None:
+        logger.info(f"Saving trained model to {cfg.training_cfg.save_path}")
+        trained_agent.save(cfg.training_cfg.save_path)
+
+
+def _gym_training_loop(
+        agent, *,
+        training_cfg: structured_configs.TrainingConfig,
+        replay_buffer: common.ReplayBuffer,
+        weight_sampler: common.WeightSampler,
+        env: gym.Env,
+        logger: logging.Logger,
+        wandb_run: log.WandbRun,
+        seed: int | None = None
+):
+    """A common training loop for the mo-gymnasiunm environments.
+
+    Parameters
+    ----------
+    cfg : sconfigs.Config
+        The configuration for the training run.
+    """
+    # Initialize the run
+    obs, info = env.reset(seed=seed)
     global_step = 0
     num_episodes = 0
+    reward_dim = env.get_wrapper_attr("reward_space").shape[0]
 
-    for ts in range(cfg.training_cfg.n_timesteps):
+    # Create the preferences that are used later for evaluating the agent.
+    eval_prefs = torch.tensor(common.get_equally_spaced_weights(
+        reward_dim, training_cfg.n_eval_prefs
+    )).float().to(agent.device)
+
+    for ts in range(training_cfg.n_timesteps):
         global_step += 1
         prefs = weight_sampler.sample(n_samples=1)
         prefs = prefs.squeeze()
 
-        if global_step < cfg.training_cfg.n_random_steps:
-            action = env.action_space.sample()
+        if global_step < training_cfg.n_random_steps:
+            action = torch.tensor(
+                env.action_space.sample()
+            ).float().to(agent.device)
         else:
             with torch.no_grad():
                 action = agent.take_action(obs, prefs)
@@ -48,27 +102,54 @@ def train(cfg: structured_configs.Config, agent, logger: logging.Logger):
         next_obs, rewards, terminated, truncated, info = env.step(action)
         replay_buffer.append(obs, action, rewards, prefs, next_obs, terminated)
 
-        if global_step > cfg.training_cfg.n_random_steps:
-            batch = replay_buffer.sample(cfg.training_cfg.batch_size)
+        if global_step > training_cfg.n_random_steps:
+            batch = replay_buffer.sample(training_cfg.batch_size)
             critic_loss, policy_loss = agent.update(batch)
-            log.debug_if(
-                logger, global_step % cfg.training_cfg.log_every_nth == 0,
-                (f"step {global_step} | critic loss {critic_loss:.3f} | "
-                 f"Policy loss {policy_loss:.3f}")
+
+            # Log metrics
+            if global_step % training_cfg.log_every_nth == 0:
+                log.log_losses(
+                    {
+                        "critic": critic_loss.item(),
+                        "policy": policy_loss.item()
+                    },
+                    global_step=global_step,
+                    logger=logger, wandb_run=wandb_run
+                )
+
+        # Evaluate the current policy after some timesteps.
+        if global_step % training_cfg.eval_every_nth == 0:
+            eval_info = evaluation.eval_policy(
+                agent, training_cfg.env_id,
+                prefs=prefs, n_episodes=training_cfg.n_eval_episodes
+            )
+            log.log_eval_info(
+                eval_info, global_step=global_step, logger=logger
             )
 
-        if global_step % cfg.training_cfg.eval_every_nth == 0:
-            eval_info = evaluation.eval_policy(
-                agent, cfg.training_cfg.env_id,
-                prefs=prefs, n_episodes=cfg.training_cfg.n_eval_episodes
+        # Similarly, we evaluate the policy on the evaluation preferences
+        if global_step % (training_cfg.eval_every_nth * 10) == 0:
+            eval_iter = (
+                evaluation.eval_policy(
+                    agent, training_cfg.env_id,
+                    prefs=prefs, n_episodes=training_cfg.n_eval_episodes
+                ) for prefs in eval_prefs
             )
-            logger.debug(
-                (f"step {global_step} | Eval info "
-                 f"{pprint.pformat(eval_info, compact=True, indent=4)}")
+            eval_data = list(
+                map(lambda elem: elem["avg_discounted_returns"], eval_iter)
+            )
+            log.log_mo_metrics(
+                current_front=eval_data, ref_point=training_cfg.ref_point,
+                reward_dim=reward_dim, global_step=global_step,
+                logger=logger
             )
 
         if terminated or truncated:
-            obs, info = env.reset()
             num_episodes += 1
+            log.log_episode_stats(
+                info, prefs=prefs, global_step=global_step, logger=logger
+            )
+            obs, info = env.reset()
         else:
             obs = next_obs
+    return agent
