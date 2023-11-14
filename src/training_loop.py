@@ -38,7 +38,7 @@ def train_agent(cfg: structured_configs.Config, agent):
 
     weight_sampler = common.WeightSampler(
         reward_dim=cfg.hypernet_cfg.reward_dim,
-        angle=common.deg_to_rad(cfg.training_cfg.angle),
+        angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg),
         device=agent.device
     )
 

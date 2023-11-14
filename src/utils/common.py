@@ -74,7 +74,7 @@ def get_equally_spaced_weights(
 class WeightSampler:
 
     def __init__(
-            self, reward_dim: int, angle: int,
+            self, reward_dim: int, angle_rad: float,
             w: npt.NDArray | torch.Tensor | None = None,
             device: str | torch.device | None = None
     ):
@@ -86,14 +86,14 @@ class WeightSampler:
         ----------
         reward_dim : int
             The dimension of the rewards.
-        angle : int
-            The angle that is use to restrict the weight sampling.
+        angle_rad : float
+            The angle that is used to restrict the weight sampling (in radians)
         w : [TODO:parameter]
             [TODO:description]
         device: str | torch.device | None, optional
         """
         self._reward_dim = reward_dim
-        self._angle = angle
+        self._angle = angle_rad
 
         self._device = torch.device("cpu" if device is None else device)
 

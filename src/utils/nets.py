@@ -83,7 +83,6 @@ def hyper_init(
     for head in modules:
         head.init_weights(weights, bias)
 
-
 def create_mlp(
         *,
         input_dim: int,
