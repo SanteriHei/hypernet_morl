@@ -206,7 +206,7 @@ def log_mo_metrics(
             columns=[f"objective_{i+1}" for i in range(reward_dim)],
             data=[point.tolist() for point in filtered_front]
         )
-        wandb_run.log({"eval/front", front})
+        wandb_run.log({"eval/front": front})
 
     # If logger is provided, log also to it.
     if logger is not None:
