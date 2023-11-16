@@ -166,7 +166,7 @@ outputs/*
 logs/*
 
 # Any logs from wandb
-wandb/*
+**/wandb/**
 
 # saved models
 results/*

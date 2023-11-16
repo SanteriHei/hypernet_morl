@@ -30,5 +30,4 @@ loggers:
   train:
     handlers:
       - console
-      - file
     level: DEBUG

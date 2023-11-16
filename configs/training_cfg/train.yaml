@@ -1,9 +1,18 @@
 defaults: 
   - base_training
 
-n_timesteps: 1_000
-log_every_nth: 50
+n_timesteps: 10_000
+n_random_stesp: 500
+batch_size: 128
+buffer_capacity: 10_000
+log_every_nth: 100
+eval_every_nth: 200
+n_eval_episodes: 5
+n_eval_prefs: 1000
 env_id: "mo-hopper-v4"
 angle_deg: 22.5
-save_path: "test"
-ref_point: [-100, -100, -100]
+save_path: ???
+ref_point: 
+  - -100.0
+  - -100.0
+  - -100.0

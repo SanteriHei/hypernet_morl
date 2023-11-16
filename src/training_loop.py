@@ -82,9 +82,11 @@ def _gym_training_loop(
     reward_dim = env.get_wrapper_attr("reward_space").shape[0]
 
     # Create the preferences that are used later for evaluating the agent.
-    eval_prefs = torch.tensor(common.get_equally_spaced_weights(
-        reward_dim, training_cfg.n_eval_prefs
-    )).float().to(agent.device)
+    eval_prefs = torch.tensor(
+        common.get_equally_spaced_weights(
+            reward_dim, training_cfg.n_eval_prefs
+        ), device=agent.device, dtype=torch.float32
+    )
 
     for ts in range(training_cfg.n_timesteps):
         global_step += 1
@@ -93,8 +95,9 @@ def _gym_training_loop(
 
         if global_step < training_cfg.n_random_steps:
             action = torch.tensor(
-                env.action_space.sample()
-            ).float().to(agent.device)
+                env.action_space.sample(), device=agent.device,
+                dtype=torch.float32
+            )
         else:
             with torch.no_grad():
                 action = agent.take_action(obs, prefs)
@@ -114,7 +117,7 @@ def _gym_training_loop(
                         "policy": policy_loss.item()
                     },
                     global_step=global_step,
-                    logger=logger, wandb_run=wandb_run
+                    wandb_run=wandb_run, logger=logger
                 )
 
         # Evaluate the current policy after some timesteps.
@@ -124,7 +127,8 @@ def _gym_training_loop(
                 prefs=prefs, n_episodes=training_cfg.n_eval_episodes
             )
             log.log_eval_info(
-                eval_info, global_step=global_step, logger=logger
+                eval_info, global_step=global_step, 
+                wandb_run=wandb_run, logger=logger
             )
 
         # Similarly, we evaluate the policy on the evaluation preferences
@@ -141,7 +145,7 @@ def _gym_training_loop(
             log.log_mo_metrics(
                 current_front=eval_data, ref_point=training_cfg.ref_point,
                 reward_dim=reward_dim, global_step=global_step,
-                logger=logger
+                wandb_run=wandb_run, logger=logger
             )
 
         if terminated or truncated:
