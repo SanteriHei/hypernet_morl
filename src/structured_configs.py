@@ -79,6 +79,7 @@ class HypernetConfig:
         default_factory=lambda: (ResblockConfig, )
     )
     layer_dims: Tuple[int, ...] = MISSING
+    head_init_stds: Tuple[float, ...] = MISSING
     reward_dim: int = MISSING
     obs_dim: int = MISSING
     action_dim: int = MISSING

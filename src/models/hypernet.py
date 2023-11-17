@@ -22,12 +22,52 @@ def _apply_hyper_init(layer: nn.Module):
         torch.nn.init.uniform_(layer.weight, -bound, bound)
 
 
+class HeadV2(nn.Module):
+    def __init__(
+            self, *, hidden_dim: int, target_input_dim: int,
+            target_output_dim: int,
+            network_arch: Tuple[int, ...]
+    ):
+        super().__init__()
+
+        self._weight_layers = nn.ModuleList()
+        self._bias_layers = nn.ModuleList()
+        self._scale_layers = nn.ModuleList()
+
+        network_arch = (hidden_dim, *network_arch)
+
+        for in_dim, out_dim in common.iter_pairwise(network_arch):
+            self._weight_layers.append(nn.Linear(in_dim, out_dim))
+            self._bias_layers.append(nn.Linear(in_dim, out_dim))
+            self._scale_layers.append(nn.Liner(in_dim, out_dim))
+
+        # Lastly add the layer that actually ouputs the weights
+        self._weight_layers.append(
+                nn.Linear(out_dim, target_input_dim*target_output_dim)
+        )
+
+        self._bias_layers.append(nn.Linear(out_dim, target_output_dim))
+        self._scale_layers.append(nn.Liner(out_dim, target_output_dim))
+    
+    def forward(self, x: torch.Tensor):
+        iter = zip(self._weight_layers, self._bias_layers, self._scale_layers)
+        weights = []
+        biases = []
+        scales = []
+        for weight_l, bias_l, scale_l in iter:
+            weights.append(weight_l(x))
+            biases.append(bias_l(x))
+            scales.append(scale_l(x))
+        return weights, biases, scales
+
+
 class Head(nn.Module):
     def __init__(
             self, *,
             target_input_dim: int,
             target_output_dim: int,
             hidden_dim: int,
+            init_std: float = 0.05
     ):
         """
         The "Head" that is used to generate the weights for a single linear
@@ -52,8 +92,8 @@ class Head(nn.Module):
         )
         self._bias_layer = nn.Linear(hidden_dim, target_output_dim)
         self._scale_layer = nn.Linear(hidden_dim, target_output_dim)
-
-        self.apply(nets.init_layers)
+        
+        self._init_weights(init_std)
 
     def get_bias_shapes(self) -> Dict[str, Tuple[int, ...]]:
         """Get the shapes of biases in each used layer.
@@ -82,27 +122,7 @@ class Head(nn.Module):
             "bias": self._bias_layer.weight.shape,
             "scale": self._bias_layer.weight.shape
         }
-
-    def init_weights(self, weights: torch.Tensor, biases: torch.Tensor):
-        """Initialize the weights for the network from the given weights.
-
-        Parameters
-        ----------
-        weights : torch.Tensor
-            The weights for the linear layer.
-        bias_weights: torch.Tensor:
-            The weights for the bias of the layers.
-        """
-        with torch.no_grad():
-            self._weight_layer.weight.data.copy_(weights["weight"])
-            self._weight_layer.bias.data.copy_(biases["weight"])
-
-            self._bias_layer.weight.data.copy_(weights["bias"])
-            self._bias_layer.bias.data.copy_(biases["bias"])
-
-            self._scale_layer.weight.data.copy_(weights["scale"])
-            self._scale_layer.bias.data.copy_(biases["scale"])
-
+    
     def forward(
             self, x: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -129,6 +149,16 @@ class Head(nn.Module):
         scale = 1.0 + self._scale_layer(x).view(-1, self._target_output_dim, 1)
         return weights, bias, scale
 
+    @torch.no_grad()
+    def _init_weights(self, std: float):
+        nn.init.uniform_(self._weight_layer.weight, -std, std)
+        nn.init.uniform_(self._scale_layer.weight, -std, std)
+        nn.init.uniform_(self._bias_layer.weight, -std, std)
+
+        # Initialize biases to zeros
+        nn.init.zeros_(self._weight_layer.bias)
+        nn.init.zeros_(self._scale_layer.bias)
+        nn.init.zeros_(self._bias_layer.bias)
 
 class ResBlock(nn.Module):
     def __init__(
@@ -311,15 +341,17 @@ class HyperNet(nn.Module):
                  )
         ])
 
-        for in_dim, out_dim in common.iter_pairwise(cfg.layer_dims):
+        for init_std, (in_dim, out_dim) in zip(
+                cfg.head_init_stds, common.iter_pairwise(cfg.layer_dims)
+        ):
             self._heads.append(
                 Head(
                     target_input_dim=in_dim, target_output_dim=out_dim,
-                    hidden_dim=cfg.head_hidden_dim
+                    hidden_dim=cfg.head_hidden_dim, init_std=init_std
                 )
             )
 
-        self._init_heads()
+        # self._init_heads()
 
         if callable(cfg.activation_fn):
             self._activation_fn = cfg.activation_fn
@@ -379,7 +411,7 @@ class HyperNet(nn.Module):
     @torch.no_grad()
     def _init_heads(self):
         """Initialize the heads bias only init"""
-
+        
         # TODO: Figure out the hyper-init initialization
         assert len(self._heads) > 0, "No heads to initialize!"
 

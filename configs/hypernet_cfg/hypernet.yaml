@@ -12,6 +12,9 @@ activation_fn: "relu"
 layer_dims: 
   - 256
   - "${..reward_dim}"
+head_init_stds:
+  - 0.05
+  - 0.008
 
 resblock_arch:
     - n_resblocks: 2
