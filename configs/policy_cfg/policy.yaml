@@ -10,4 +10,3 @@ action_space_high: "${env.action_space_high:${..training_cfg.env_id}}"
 network_arch: 
   - 256
   - 256
-  - 256

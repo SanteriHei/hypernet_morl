@@ -8,18 +8,10 @@ from typing import Callable, Dict, Tuple
 import numpy as np
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 from .. import structured_configs
 from ..utils import common, configs, nets
-
-
-def _apply_hyper_init(layer: nn.Module):
-    if isinstance(layer, nn.Linear):
-        # Bit hacky to use private function here! Should probably calculate
-        # these manually
-        fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(layer.weight)
-        bound = 1.0 / math.sqrt(2 * fan_in)
-        torch.nn.init.uniform_(layer.weight, -bound, bound)
 
 
 class HeadV2(nn.Module):
@@ -43,12 +35,12 @@ class HeadV2(nn.Module):
 
         # Lastly add the layer that actually ouputs the weights
         self._weight_layers.append(
-                nn.Linear(out_dim, target_input_dim*target_output_dim)
+            nn.Linear(out_dim, target_input_dim*target_output_dim)
         )
 
         self._bias_layers.append(nn.Linear(out_dim, target_output_dim))
         self._scale_layers.append(nn.Liner(out_dim, target_output_dim))
-    
+
     def forward(self, x: torch.Tensor):
         iter = zip(self._weight_layers, self._bias_layers, self._scale_layers)
         weights = []
@@ -92,7 +84,7 @@ class Head(nn.Module):
         )
         self._bias_layer = nn.Linear(hidden_dim, target_output_dim)
         self._scale_layer = nn.Linear(hidden_dim, target_output_dim)
-        
+
         self._init_weights(init_std)
 
     def get_bias_shapes(self) -> Dict[str, Tuple[int, ...]]:
@@ -122,7 +114,7 @@ class Head(nn.Module):
             "bias": self._bias_layer.weight.shape,
             "scale": self._bias_layer.weight.shape
         }
-    
+
     def forward(
             self, x: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -160,6 +152,7 @@ class Head(nn.Module):
         nn.init.zeros_(self._scale_layer.bias)
         nn.init.zeros_(self._bias_layer.bias)
 
+
 class ResBlock(nn.Module):
     def __init__(
             self, *,
@@ -184,16 +177,20 @@ class ResBlock(nn.Module):
         """
         super().__init__()
 
-        n_layers = len(network_arch)
-        assert n_layers >= 2, \
-            f"Expected atleast 2 layer resblock, got {n_layers} layers instead"
+        assert (n_layers := len(network_arch)) >= 1, \
+           f"Expected atleast 2 layer resblock, got {n_layers} layers instead"
+
+        # Do not apply activation function to the last layer.
+        apply_activation = tuple(
+            i != len(network_arch) for i in range(len(network_arch) + 1)
+        )
 
         self._network = nets.create_mlp(
             input_dim=input_dim,
             output_dim=output_dim,
             network_arch=network_arch,
             activation_fn=activation_fn,
-            apply_activation_to_last=False
+            apply_activation=apply_activation
         )
         self.apply(nets.init_layers)
 
@@ -210,6 +207,7 @@ class ResBlock(nn.Module):
         torch.Tensor
             The output of the residual block.
         """
+        x = F.relu(x)
         return x + self._network(x)
 
 
@@ -245,7 +243,7 @@ class Embedding(nn.Module):
         self._hypernet = self._construct_network(
             resblock_arch
         )
-        self.apply(_apply_hyper_init)
+        self._init_layers()
 
     def forward(
             self, obs: torch.Tensor, weights: torch.Tensor
@@ -270,6 +268,15 @@ class Embedding(nn.Module):
         # Condition the network on the preferences
         x = self._hypernet(torch.cat((obs, weights), dim=-1))
         return x
+    
+    @torch.no_grad()
+    def _init_layers(self):
+        for module in self._hypernet.modules():
+            if isinstance(module, nn.Linear):
+                # Bit hacky to use a private function for this!
+                fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(module.weight)
+                bound = 1.0 / math.sqrt(2 * fan_in)
+                nn.init.uniform_(module.weight, -bound, bound)
 
     def _construct_network(
             self,
@@ -350,9 +357,6 @@ class HyperNet(nn.Module):
                     hidden_dim=cfg.head_hidden_dim, init_std=init_std
                 )
             )
-
-        # self._init_heads()
-
         if callable(cfg.activation_fn):
             self._activation_fn = cfg.activation_fn
         else:
@@ -407,30 +411,3 @@ class HyperNet(nn.Module):
         )
         # Remove the singleton dimension.
         return out.squeeze(2)
-
-    @torch.no_grad()
-    def _init_heads(self):
-        """Initialize the heads bias only init"""
-        
-        # TODO: Figure out the hyper-init initialization
-        assert len(self._heads) > 0, "No heads to initialize!"
-
-        bias_shapes = self._heads[0].get_bias_shapes()
-        weight_shapes = self._heads[0].get_weight_shapes()
-
-        for head in self._heads:
-            bias_shapes = head.get_bias_shapes()
-            weight_shapes = head.get_weight_shapes()
-
-            bias_inits = {}
-            for layer, shape in bias_shapes.items():
-                std = 1/math.sqrt(shape[0])
-                init_weights = torch.zeros(shape)
-                init_weights.uniform_(-std, std)
-                bias_inits[layer] = init_weights
-            weight_inits = {
-                layer: torch.zeros(shape)
-                for layer, shape in weight_shapes.items()
-            }
-
-            head.init_weights(weight_inits, bias_inits)

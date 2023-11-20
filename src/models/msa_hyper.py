@@ -68,6 +68,7 @@ class MSAHyper:
 
     @property
     def config(self) -> sconfigs.MSAHyperConfig:
+        '''Get the configuration for MSA'''
         return self._cfg
 
     @property
@@ -120,6 +121,21 @@ class MSAHyper:
     def take_action(
             self, obs: torch.Tensor, prefs: torch.Tensor
     ) -> torch.Tensor:
+        """
+        Take an action with the current policy.
+
+        Parameters
+        ----------
+        obs : torch.Tensor
+            The observation from the environment.
+        prefs : torch.Tensor
+            The currently used preferences over the objectives.
+
+        Returns
+        -------
+        torch.Tensor
+            The computed action from the current policy.
+        """
         return self._policy.take_action(obs, prefs)
 
     def update(
@@ -147,7 +163,7 @@ class MSAHyper:
 
             state_value_targets = torch.stack([
                 target_net(
-                    replay_sample.obs, replay_sample.actions, replay_sample.prefs
+                    replay_sample.next_obs, next_state_action, replay_sample.prefs
                 ) for target_net in self._critic_targets
             ])
             # Find the minimum values among the networks and add the rewards
@@ -169,7 +185,7 @@ class MSAHyper:
 
         # Lastly, update the q-target networks
         for critic, critic_target in zip(self._critics, self._critic_targets):
-            nets.polyak_update(critic, critic_target, self._cfg.tau)
+            nets.polyak_update(src=critic, dst=critic_target, tau=self._cfg.tau)
 
         return critic_loss, policy_loss
 
@@ -191,7 +207,6 @@ class MSAHyper:
         torch.Tensor
             The loss of the critc network.
         """
-        self._critic_optim.zero_grad()
         q_vals = [
             critic(
                 replay_sample.obs, replay_sample.actions,
@@ -201,6 +216,8 @@ class MSAHyper:
         critic_loss = (1 / self._cfg.n_networks) * sum(
             F.mse_loss(q_value, target_q_values) for q_value in q_vals
         )
+
+        self._critic_optim.zero_grad()
         critic_loss.backward()
         self._critic_optim.step()
         return critic_loss
@@ -220,14 +237,18 @@ class MSAHyper:
         torch.Tensor
             The loss of the policy network.
         """
+        # Sample an action from the policy network
         action, log_prob, _ = self._policy.sample_action(
             replay_sample.obs, replay_sample.prefs
         )
-
+        
+        # Calculate the corresponding state-action values.
         q_values = torch.stack([
-            target_net(replay_sample.obs, action, replay_sample.prefs)
-            for target_net in self._critic_targets
+            critic(replay_sample.obs, action, replay_sample.prefs)
+            for critic in self._critics
         ])
+
+        # Minimize the KL-divergence
         min_q_val = torch.min(q_values, dim=0).values
         min_q_val = (min_q_val * replay_sample.prefs).sum(dim=-1, keepdim=True)
 

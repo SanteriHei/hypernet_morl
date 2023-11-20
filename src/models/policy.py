@@ -7,14 +7,15 @@ import torch
 from torch import nn
 
 from .. import structured_configs
-from ..utils import configs, nets
+from ..utils import configs, nets, log
 
 
 class GaussianPolicy(nn.Module):
 
-    _LOG_SIG_MAX: int = 2
-    _LOG_SIG_MIN: int = -20
-    _EPS: float = 1e-6
+    LOG_SIG_MAX: int = 2
+    LOG_SIG_MIN: int = -20
+    LOG_PROB_RANGE: float = 1e3
+    EPS: float = 1e-6
 
     def __init__(
             self, cfg: structured_configs.PolicyConfig,
@@ -28,29 +29,43 @@ class GaussianPolicy(nn.Module):
             The configuration for the GaussianPolicy
         """
         super().__init__()
-
+        self._logger = log.get_logger("models.gaussian_policy")
         self._cfg = configs.as_structured_config(cfg)
+
+        # Do not apply activation function after the last layer
+        n_layers = len(cfg.network_arch)
+        apply_activation = tuple(
+                i != n_layers - 1 for i in range(n_layers)
+        )
+
 
         self._latent_pi = nets.create_mlp(
             input_dim=cfg.reward_dim + cfg.obs_dim,
             output_dim=cfg.network_arch[-1],
             network_arch=cfg.network_arch[:-1],
-            activation_fn=cfg.activation_fn
+            activation_fn=cfg.activation_fn,
+            apply_activation=apply_activation
         )
-
+        
+        self._logger.debug(
+                "Mean and log-std layers | "
+                f"{cfg.network_arch[-1]} -> {cfg.output_dim}"
+        )
         self._mean_layer = nn.Linear(cfg.network_arch[-1], cfg.output_dim)
         self._log_std_layer = nn.Linear(cfg.network_arch[-1], cfg.output_dim)
 
         # for scaling the actions
-        action_space_low = torch.as_tensor(cfg.action_space_low)
-        action_space_high = torch.as_tensor(cfg.action_space_high)
-        self.register_buffer(
-            "_action_scale",
-            (action_space_high - action_space_low) / 2.0
+        action_space_low = torch.as_tensor(
+                cfg.action_space_low, dtype=torch.float32
+        )
+        action_space_high = torch.as_tensor(
+                cfg.action_space_high, dtype=torch.float32
         )
         self.register_buffer(
-            "_action_bias",
-            (action_space_high - action_space_low) / 2.0
+            "_action_scale", (action_space_high - action_space_low) / 2.0
+        )
+        self.register_buffer(
+            "_action_bias", (action_space_high - action_space_low) / 2.0
         )
 
     @property
@@ -88,8 +103,9 @@ class GaussianPolicy(nn.Module):
         log_std = self._log_std_layer(h)
         # Apply clamping as in the original paper
         log_std = torch.clamp(
-            log_std, min=GaussianPolicy._LOG_SIG_MIN,
-            max=GaussianPolicy._LOG_SIG_MAX
+            log_std,
+            min=GaussianPolicy.LOG_SIG_MIN,
+            max=GaussianPolicy.LOG_SIG_MAX
         )
         return mean, log_std
 
@@ -137,19 +153,25 @@ class GaussianPolicy(nn.Module):
 
         normal_distr = torch.distributions.Normal(mean, std)
         x_t = normal_distr.rsample()  # reparmeterization trick
+        self._logger.debug(f"reparametrization trick x_t shape {x_t.shape}")
 
         # Convert the sample to the (-1, 1) scale
         y_t = torch.tanh(x_t)
         action = y_t * self._action_scale + self._action_bias
 
         log_prob = normal_distr.log_prob(x_t)
+        self._logger.debug(f"log_prob shape {log_prob.shape}")
 
-        # TODO: is this correct?
+        # Enforce the action bounds
+        # Compute the log prob as the normal distr sample which is processed by 
+        # tanh
         log_prob -= torch.log(
-            self._action_scale * (1 - y_t.pow(2)) + GaussianPolicy._EPS
+            self._action_scale * (1 - y_t.pow(2)) + GaussianPolicy.EPS
         )
         log_prob = log_prob.sum(axis=1, keepdim=True)
-        log_prob = log_prob.clamp(-1e3, 1e3)
+        log_prob = log_prob.clamp(
+                -GaussianPolicy.LOG_PROB_RANGE, GaussianPolicy.LOG_PROB_RANGE
+        )
 
         mean = torch.tanh(mean) * self._action_scale + self._action_bias
 

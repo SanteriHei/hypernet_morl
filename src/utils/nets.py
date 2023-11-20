@@ -7,7 +7,9 @@ import torch
 import torch.nn.functional as F
 from torch import nn, optim
 
-from . import common
+from . import common, log
+
+_LOGGER = log.get_logger("utils.nets")
 
 
 @torch.no_grad()
@@ -55,6 +57,7 @@ def init_layers(
         init_fn(layer.weight, gain=weight_gain)
         nn.init.constant_(layer.bias, bias_const)
 
+
 @torch.no_grad
 def hyper_init(
         modules: Iterable["Head"],
@@ -65,7 +68,7 @@ def hyper_init(
 ):
 
     # TODO: How this is actually applied? How would one apply different
-    # initializations for each preferences in any way? 
+    # initializations for each preferences in any way?
     if method not in ("bias", "weight"):
         raise ValueError((f"Unknown initialization method {method!r} for "
                           "hyper-init! Should be either 'bias' or 'weight'"))
@@ -83,13 +86,14 @@ def hyper_init(
     for head in modules:
         head.init_weights(weights, bias)
 
+
 def create_mlp(
         *,
         input_dim: int,
         output_dim: int,
         network_arch: Tuple[int, ...],
         activation_fn: nn.Module | str,
-        apply_activation_to_last: bool = False
+        apply_activation: Tuple[bool, ...] | bool = True
 ) -> nn.Module:
     """Create a simple fully connected network using the specified architecture
     and activation function
@@ -104,9 +108,10 @@ def create_mlp(
         The architecture of the network as a tuple of neurons for each layer.
     activation_fn : nn.Module | str
         The used activation function.
-    apply_activation_to_last : bool
-        If set to True, the activation function will be also applied after the 
-        ouput layer. Default False
+    apply_activation Tuple[bool, ...] | bool, optional
+        A boolean indicating if activation function should be applied after 
+        each given layer. If a single value is given, it is used after each
+        layer. Default True. (i.e apply activation function after each layer)
 
     Returns
     -------
@@ -119,19 +124,26 @@ def create_mlp(
             f"Expected atleast 1 layer, but got {n_layers} layers"
         )
 
+    if isinstance(apply_activation, bool):
+        apply_activation = (
+            apply_activation for _ in range(len(network_arch) + 1)
+        )
+
     if isinstance(activation_fn, str):
         activation_fn = get_activation_module(activation_fn)
 
     layers = []
-    architecture = (input_dim, *network_arch)
+    architecture = (input_dim, *network_arch, output_dim)
 
-    for in_dim, out_dim in common.iter_pairwise(architecture):
+    for use_activation, (in_dim, out_dim) in zip(
+            apply_activation, common.iter_pairwise(architecture)
+    ):
+        _LOGGER.debug(
+                f"Linear {in_dim} -> {out_dim} with activation? {use_activation}"
+        )
         layers.append(nn.Linear(in_dim, out_dim))
-        layers.append(activation_fn())
-
-    layers.append(nn.Linear(architecture[-1], output_dim))
-    if apply_activation_to_last:
-        layers.append(activation_fn())
+        if use_activation:
+            layers.append(activation_fn())
 
     return nn.Sequential(*layers)
 
@@ -140,7 +152,7 @@ def target_network(
         x: torch.Tensor, *,
         weights: Tuple[torch.Tensor, ...], biases: Tuple[torch.Tensor, ...],
         scales: Tuple[torch.Tensor, ...], apply_activation: Tuple[bool],
-        activation_fn: str | Callable = "relu", 
+        activation_fn: str | Callable = "relu",
 ) -> torch.Tensor:
     """Apply the forward pass of the target network of the hypernetwork.
     The target network is expected to contain linear layers.
@@ -170,12 +182,12 @@ def target_network(
     if isinstance(activation_fn, str):
         activation_fn = get_activation_fn(activation_fn)
 
-    assert callable(activation_fn),\
+    assert callable(activation_fn), \
         f"Activation function is not callable! ({activation_fn})"
 
     for w, b, scale, use_activation in iter:
         in_var = out.unsqueeze(2) if out.ndim == 2 else out
-        out =  torch.bmm(w, in_var) * scale + b
+        out = torch.bmm(w, in_var) * scale + b
         if use_activation:
             out = activation_fn(out)
     return out
