@@ -2,7 +2,7 @@ defaults:
   - base_training
 
 n_timesteps: 1_000_000
-n_random_steps: 1000
+n_random_steps: 3000
 env_id: "mo-hopper-v4"
 save_path: ???
 batch_size: 128

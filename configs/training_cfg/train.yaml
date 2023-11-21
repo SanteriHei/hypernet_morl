@@ -2,7 +2,7 @@ defaults:
   - base_training
 
 n_timesteps: 1000
-n_random_steps: 300
+n_random_steps: 500
 batch_size: 128
 buffer_capacity: 10_000
 log_every_nth: 100
