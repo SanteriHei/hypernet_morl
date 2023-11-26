@@ -3,7 +3,7 @@ import logging
 import gymnasium as gym
 import torch
 
-from src.utils import common, envs, evaluation, log, viz
+from src.utils import common, envs, evaluation, log
 
 from . import structured_configs
 
@@ -81,8 +81,13 @@ def _gym_training_loop(
     num_episodes = 0
     reward_dim = env.get_wrapper_attr("reward_space").shape[0]
     
-    # Keep track of the current approximation of the front
-    current_perf = None
+    # Keep track of the pareto-front
+    if wandb_run is not None:
+        eval_table = wandb_run.Table(
+                columns=[
+                    "step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2"
+                ]
+        )
 
 
     # Create the preferences that are used later for evaluating the agent.
@@ -143,11 +148,28 @@ def _gym_training_loop(
                     prefs=prefs, n_episodes=training_cfg.n_eval_episodes
                 ) for prefs in eval_prefs
             ]
-
+            
             current_front = [
                     elem["avg_discounted_returns"] for elem in eval_data
             ]
-            current_perf = eval_data
+
+            current_stds = [
+                    elem["std_discounted_returns"] for elem in eval_data
+            ]
+
+            for avg_disc_return, std_disc_return in zip(current_front, current_stds):
+                assert (n_elems := len(avg_disc_return)) == 2,\
+                    f"Expected two elements in eval data, got {n_elems} instead!"
+                assert (n_elems := len(std_disc_return)) == 2,\
+                    f"Expected two elements in eval data, got {n_elems} instead!"
+                eval_table.add_data(
+                        global_step,
+                        avg_disc_return[0],
+                        avg_disc_return[1],
+                        std_disc_return[0],
+                        std_disc_return[1]
+                )
+
 
             log.log_mo_metrics(
                 current_front=current_front, ref_point=training_cfg.ref_point,
@@ -167,6 +189,13 @@ def _gym_training_loop(
     
     # Finally, plot the final pareto-front
     if wandb_run is not None:
-        fig = viz.plot_pareto_front(current_perf)
-        wandb_run.log({"charts/front": fig})
+        wandb_run.log({"eval/pareto-front": eval_table})
+        wandb_run.plot_table(
+                vega_spec_name="santeriheiskanen/test",
+                data_table=eval_table,
+                fields={
+                    "x": "avg_obj1", "y": "avg_obj2", "color": "step",
+                    "tooltip_1": "std_obj1", "tooltip_2": "std_obj2"
+                }
+        )
     return agent

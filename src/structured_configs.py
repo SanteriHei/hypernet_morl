@@ -74,6 +74,15 @@ class HypernetConfig:
     head_hidden_dim: int The hidden dimension of the "Heads". Default 1024.
     activation_fn: Callable | str: The activation function used in the dynamic
         network. Default "relu"
+    use_action: bool
+        Determines if the critic is given the action as an input or not.
+        Default True.
+    use_prefs: bool
+        Determines if the critic is given the preferences as an input or not.
+        Default False.
+    use_obs: bool
+        Determines if the critic is given the observation as an input or not.
+        Default False.
     """
     resblock_arch: Tuple[ResblockConfig, ...] = field(
         default_factory=lambda: (ResblockConfig, )
@@ -85,6 +94,10 @@ class HypernetConfig:
     action_dim: int = MISSING
     head_hidden_dim: int = 1024
     activation_fn: str = "relu"
+    use_action: bool = True 
+    use_prefs: bool = False
+    use_obs: bool = False
+    
 
 
 @dataclass
@@ -171,7 +184,7 @@ class TrainingConfig:
     # buffer parameters
     batch_size: int = 100
     buffer_capacity: int = 10_000
-    angle_deg: float = 22.5
+    angle_deg: float = 45
     
     # Logging parameters
     save_path: str = MISSING

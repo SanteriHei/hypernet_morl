@@ -16,7 +16,9 @@ from ..utils import common, configs, nets
 
 class HeadV2(nn.Module):
     def __init__(
-            self, *, hidden_dim: int, target_input_dim: int,
+            self, *,
+            hidden_dim: int,
+            target_input_dim: int,
             target_output_dim: int,
             network_arch: Tuple[int, ...]
     ):
@@ -341,8 +343,10 @@ class HyperNet(nn.Module):
             resblock_arch=cfg.resblock_arch
         )
 
+        target_input_dim = self._get_target_input_dim()
+
         self._heads = nn.ModuleList([
-            Head(target_input_dim=cfg.action_dim,
+            Head(target_input_dim=target_input_dim,
                  hidden_dim=cfg.head_hidden_dim,
                  target_output_dim=cfg.layer_dims[0]
                  )
@@ -405,9 +409,98 @@ class HyperNet(nn.Module):
         # Do not apply activation on the last layer
         # (i.e. create mask where last item is false)
         apply_activation = np.arange(len(weights)) < len(weights) - 1
+
+        target_net_input = self._get_target_input(obs, action, prefs) 
+
         out = nets.target_network(
-            action,  weights=weights, biases=biases, scales=scales,
+            target_net_input, weights=weights, biases=biases, scales=scales,
             apply_activation=apply_activation, activation_fn=self._activation_fn
         )
         # Remove the singleton dimension.
         return out.squeeze(2)
+    
+
+    def _get_target_input_dim(self) -> int:
+        if (
+                not self._cfg.use_obs and 
+                not self._cfg.use_action and 
+                not self._cfg.use_prefs
+        ):
+            raise ValueError(("Atleast one of 'use_obs', 'use_action' and "
+                              "'use_prefs' must be True"))
+       
+        input_dim = None
+        
+        if self._cfg.use_action and self._cfg.use_prefs and self._cfg.use_obs:
+            input_dim = self._cfg.obs_dim + self._cfg.action_dim + self._cfg.reward_dim
+        elif self._cfg.use_action and self._cfg.use_prefs: 
+            input_dim = self._cfg.action_dim + self._cfg.reward_dim
+        elif self._cfg.use_action and self._cfg.use_obs:
+            input_dim = self._cfg.obs_dim + self._cfg.action_dim 
+        elif self._cfg.use_prefs and self._cfg.use_obs:
+            input_dim = self._cfg.reward_dim + self._cfg.obs_dim
+        elif self._cfg.use_obs:
+            input_dim = self._cfg.obs_dim
+        elif self._cfg.use_action:
+            input_dim = self._cfg.action_dim
+        elif self._cfg.use_prefs:
+            input_dim = self._cfg.reward_dim
+
+        assert input_dim is not None,\
+            (f"Unknown combination of inputs: Obs {self._cfg.use_obs} | "
+             f"Action {self._cfg.use_action} | Prefs: {self._cfg.use_prefs}")
+
+        return input_dim
+
+        
+
+    def _get_target_input(
+            self, obs: torch.Tensor, action: torch.Tensor, prefs: torch.Tensor
+    ) -> torch.Tensor:
+
+        """Create the input for the target network based on the use
+        configuration.
+
+        Parameters
+        ----------
+        obs : torch.Tensor
+            The current observation.
+        action : torch.Tensor
+            The current action.
+        prefs : torch.Tensor
+            The current preferences over the objectives.
+
+        Returns
+        -------
+        torch.Tensor
+            The composed input for the target network.
+        """
+        if (
+                not self._cfg.use_obs and 
+                not self._cfg.use_action and 
+                not self._cfg.use_prefs
+        ):
+            raise ValueError(("Atleast one of 'use_obs', 'use_action' and "
+                              "'use_prefs' must be True"))
+       
+        out = None
+        
+        if self._cfg.use_action and self._cfg.use_prefs and self._cfg.use_obs:
+            out = torch.cat((obs, action, prefs), dim=-1)
+        elif self._cfg.use_action and self._cfg.use_prefs: 
+            out = torch.cat((obs, prefs), dim=-1)
+        elif self._cfg.use_action and self._cfg.use_obs:
+            out = torch.cat((obs, action), dim=-1)
+        elif self._cfg.use_prefs and self._cfg.use_obs:
+            out = torch.cat((obs, action), dim=-1)
+        elif self._cfg.use_obs:
+            out = obs
+        elif self._cfg.use_action:
+            out = action
+        elif self._cfg.use_prefs:
+            out = action
+
+        assert out is not None,\
+            (f"Unknown critic input config: obs: {self._cofg.use_obs} | "
+             f"Action {self._cfg.use_action} |  Prefs {self._cfg.use_prefs}")
+        return out
