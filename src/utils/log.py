@@ -18,7 +18,7 @@ _CONFIG_SET: bool = False
 
 _CONFIG_PATH = pathlib.Path(__file__).parents[2] / "configs" / "log_config.yml"
 
-# Shorhand for this 
+# Shorthand for the type 
 WandbRun = wandb.sdk.wandb_run.Run
 
 def setup_wandb(

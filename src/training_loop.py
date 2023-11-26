@@ -3,7 +3,7 @@ import logging
 import gymnasium as gym
 import torch
 
-from src.utils import common, envs, evaluation, log
+from src.utils import common, envs, evaluation, log, viz
 
 from . import structured_configs
 
@@ -80,6 +80,10 @@ def _gym_training_loop(
     global_step = 0
     num_episodes = 0
     reward_dim = env.get_wrapper_attr("reward_space").shape[0]
+    
+    # Keep track of the current approximation of the front
+    current_perf = None
+
 
     # Create the preferences that are used later for evaluating the agent.
     eval_prefs = torch.tensor(
@@ -133,17 +137,20 @@ def _gym_training_loop(
 
         # Similarly, we evaluate the policy on the evaluation preferences
         if global_step % (training_cfg.eval_every_nth * 10) == 0:
-            eval_iter = (
+            eval_data = [
                 evaluation.eval_policy(
                     agent, training_cfg.env_id,
                     prefs=prefs, n_episodes=training_cfg.n_eval_episodes
                 ) for prefs in eval_prefs
-            )
-            eval_data = list(
-                map(lambda elem: elem["avg_discounted_returns"], eval_iter)
-            )
+            ]
+
+            current_front = [
+                    elem["avg_discounted_returns"] for elem in eval_data
+            ]
+            current_perf = eval_data
+
             log.log_mo_metrics(
-                current_front=eval_data, ref_point=training_cfg.ref_point,
+                current_front=current_front, ref_point=training_cfg.ref_point,
                 reward_dim=reward_dim, global_step=global_step,
                 wandb_run=wandb_run, logger=logger
             )
@@ -156,4 +163,10 @@ def _gym_training_loop(
             obs, info = env.reset()
         else:
             obs = next_obs
+
+    
+    # Finally, plot the final pareto-front
+    if wandb_run is not None:
+        fig = viz.plot_pareto_front(current_perf)
+        wandb_run.log({"charts/front": fig})
     return agent

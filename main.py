@@ -4,6 +4,8 @@ import hydra
 import omegaconf
 from hydra.core.config_store import ConfigStore
 
+# Just to make sure that the custom envs are registered
+import src.environments  # noqa
 from src import training_loop
 from src.models import msa_hyper
 from src.utils import configs

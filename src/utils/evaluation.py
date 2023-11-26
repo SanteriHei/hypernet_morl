@@ -81,12 +81,11 @@ def eval_policy(
     Returns
     -------
     Dict[str, float | npt.NDArray]
-        The average scalarized returns,
-        the average scalarized discounted returns,
-        the average returns (as vector),
-        and the average discounted returns (as vector)
+        The average and standard deviation of scalarized returns,
+        the average and standard deviation of scalarized discounted returns,
+        the average and standard deviation of returns (as vector),
+        and the average and standard deviation of discounted returns (as vector)
     """
-
     gamma = agent.config.gamma
     evals = [
             eval_agent(agent, env_id, prefs, gamma=gamma)
@@ -95,6 +94,8 @@ def eval_policy(
 
     # Convert list of dicts into dict of lists
     evals = {key: [obj[key] for obj in evals] for key in evals[0].keys()}
-    return {
-        f"avg_{key}": np.mean(data, axis=0) for key, data in evals.items()
-    }
+    out = {}
+    for key, data in evals.items():
+        out[f"avg_{key}"] = np.mean(data, axis=0)
+        out[f"std_{key}"] = np.std(data, axis=0)
+    return out

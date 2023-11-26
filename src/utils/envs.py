@@ -52,7 +52,7 @@ class TorchWrapper(gym.Wrapper, gym.utils.RecordConstructorArgs):
         return obs, info
 
     def step(
-            self, action: npt.NDArray |  torch.Tensor
+            self, action: npt.NDArray | torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, bool, bool, Dict[str, Any]]:
         """Overrides the step method to allow one to use tensors.
 
@@ -99,8 +99,9 @@ def create_env(env_id: str, device: str | torch.device) -> gym.Env:
     env = TorchWrapper(env, device=device)
     return env
 
+
 def create_vec_envs(env_id: str, device: str | torch.device, n_envs: int = 5):
     envs = mo_gym.MOSyncVectorEnv(
-            (lambda env_id: mo_gym.make(env_id) for _ in range(n_envs))
+        (lambda env_id: mo_gym.make(env_id) for _ in range(n_envs))
     )
     return envs
