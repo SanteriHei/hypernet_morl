@@ -49,12 +49,25 @@ class MoHalfCheetah(HalfCheetahEnv, gym.utils.EzPickle):
               In this case the first reward component is the speed reward, 
               while the second component is the energy reward.
         """
-        observation, reward, terminated, truncated, info = super().step(action)
+        xpos_before = self.data.qpos[0]
+        action = np.clip(action, -1.0, 1.0)
+        self.do_simulation(action, self.frame_skip)
+        xpos_after, angle = self.data.qpos[0], self.data.qpos[2]
+        obs = self._get_obs()
+        
+        terminated = not ( abs(angle)< np.deg2rad(50))
+        x_velocity = (xpos_after - xpos_before) / self.dt
         energy_reward = (
             self._base_reward -
             1.0 * np.square(action).sum() + self._alive_bonus
         )
-        reward_run = min(self._base_reward, info["x_velocity"]) + self._alive_bonus
+        reward_run = min(self._base_reward, x_velocity) + self._alive_bonus
         vec_reward = np.array([reward_run, energy_reward])
-        info["reward_run"] = reward_run
-        return observation, vec_reward, terminated, truncated, info
+
+        info = {
+                "reward_run": reward_run,
+                "energy_reward": energy_reward,
+                "x_velocity": x_velocity,
+                "x_position": xpos_after
+        }
+        return obs, vec_reward, terminated, False, info

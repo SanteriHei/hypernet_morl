@@ -3,10 +3,10 @@ from typing import Any, Mapping, Tuple
 import gymnasium as gym
 import numpy as np
 import numpy.typing as npt
-from gymnasium.envs.mujoco.hopper_v4 import MoHopperEnv
+from gymnasium.envs.mujoco.hopper_v4 import HopperEnv
 
 
-class MoHopper(MoHopperEnv, gym.utils.EzPickle):
+class MoHopper(HopperEnv, gym.utils.EzPickle):
     """Backport of Multi-objective hopper environment to the Gymnasium. 
     Utilizes the reward definitions from (Insert pgmorl). 
 
@@ -48,10 +48,10 @@ class MoHopper(MoHopperEnv, gym.utils.EzPickle):
             reward (i.e. the jump_height without energy penalty) and the 
             pure enrgy reward (i.e. sum(action^2))
         """
-        pos_before = self.sim.data.qpos[0]
+        pos_before = self.data.qpos[0]
         action = np.clip(action, [-2.0, -2.0, -4.0], [2.0, 2.0, 4.0])
         self.do_simulation(action, self.frame_skip)
-        pos_after, height, angle = self.sim.data.qpos[0:3]
+        pos_after, height, angle = self.data.qpos[0:3]
         x_velocity = (pos_after - pos_before)/self.dt
 
         other_rewards = self._alive_bonus - 2e-4 * np.square(action).sum()

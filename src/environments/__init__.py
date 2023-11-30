@@ -10,6 +10,6 @@ register(
 
 register(
     id="mo-hopper-v4-fork",
-    entry_point="src.environments.hoppper:MoHopper",
+    entry_point="src.environments.hopper:MoHopper",
     max_episode_steps=500
 )
