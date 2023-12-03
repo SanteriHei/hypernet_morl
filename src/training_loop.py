@@ -30,14 +30,14 @@ def train_agent(cfg: structured_configs.Config, agent):
     # Construct the relevant buffers
     replay_buffer = common.ReplayBuffer(
         cfg.training_cfg.buffer_capacity,
-        obs_dim=cfg.hypernet_cfg.obs_dim,
-        reward_dim=cfg.hypernet_cfg.reward_dim,
+        obs_dim=cfg.critic_cfg.obs_dim,
+        reward_dim=cfg.critic_cfg.reward_dim,
         action_dim=cfg.policy_cfg.output_dim,
         seed=cfg.seed
     )
 
     weight_sampler = common.WeightSampler(
-        reward_dim=cfg.hypernet_cfg.reward_dim,
+        reward_dim=cfg.critic_cfg.reward_dim,
         angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg),
         device=agent.device
     )
@@ -54,8 +54,14 @@ def train_agent(cfg: structured_configs.Config, agent):
     )
 
     if cfg.training_cfg.save_path is not None:
-        logger.info(f"Saving trained model to {cfg.training_cfg.save_path}")
+        if logger is not None:
+            logger.info(
+                    f"Saving trained model to {cfg.training_cfg.save_path}"
+            )
         trained_agent.save(cfg.training_cfg.save_path)
+
+    if wandb_run is not None:
+        wandb_run.finish()
 
 
 def _gym_training_loop(

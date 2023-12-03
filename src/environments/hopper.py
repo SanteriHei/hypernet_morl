@@ -48,6 +48,8 @@ class MoHopper(HopperEnv, gym.utils.EzPickle):
             reward (i.e. the jump_height without energy penalty) and the 
             pure enrgy reward (i.e. sum(action^2))
         """
+        assert not np.isnan(action).any(), f"Got a NaN action {action}"
+
         pos_before = self.data.qpos[0]
         action = np.clip(action, [-2.0, -2.0, -4.0], [2.0, 2.0, 4.0])
         self.do_simulation(action, self.frame_skip)
@@ -73,5 +75,7 @@ class MoHopper(HopperEnv, gym.utils.EzPickle):
 
         if self.render_mode == "human":
             self.render()
+
+        assert not np.isnan(obs).any()
 
         return obs, np.array([reward_run, reward_jump]), terminated, False, info

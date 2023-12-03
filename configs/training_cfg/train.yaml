@@ -9,10 +9,9 @@ log_every_nth: 100
 eval_every_nth: 200
 n_eval_episodes: 5
 n_eval_prefs: 1000
-env_id: "mo-hopper-v4"
-angle_deg: 22.5
+env_id: "mo-hopper-v4-fork"
+angle_deg: 45
 save_path: "test"
 ref_point: 
-  - -100.0
   - -100.0
   - -100.0

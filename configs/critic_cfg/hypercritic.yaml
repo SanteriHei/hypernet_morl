@@ -1,42 +1,42 @@
 defaults:
-  - base_hypernet
+  - base_critic
 
 
 # These will be automatically resolved from the used environment.
 reward_dim: "${env.reward_dim:${..training_cfg.env_id}}"
 obs_dim: "${env.obs_dim:${..training_cfg.env_id}}"
 action_dim: "${env.action_dim:${..training_cfg.env_id}}"
-
-head_hidden_dim: 1024
 activation_fn: "relu"
 layer_dims: 
   - 256
   - "${..reward_dim}"
-head_init_stds:
-  - 0.05
-  - 0.008
 
-resblock_arch:
+
+hypernet_cfg:
+  head_hidden_dim: 1024
+  dropout_rate: null
+  embedding_layers:
     - n_resblocks: 2
       # This will be automatically resolved with reward_dim + obs_dim
-      input_dim: "${sum:${...obs_dim}, ${...reward_dim}}"
-      output_dim: 256
+      input_dim: "${sum:${....obs_dim}, ${....reward_dim}}"
       activation_fn: "relu"
-      network_arch:
+      layer_features:
+        - 256
         - 256
     - n_resblocks: 2
-      input_dim: 256 
-      output_dim: 512
+      input_dim: 256
       activation_fn: "relu"
-      network_arch: 
+      layer_features:
+        - 512
         - 512
     - n_resblocks: 2
       input_dim: 512
-      output_dim: 1024
       activation_fn: "relu"
-      network_arch:
+      layer_features: 
+        - 1024
         - 1024
 
-
-
+  head_init_stds:
+    - 0.05
+    - 0.008
 

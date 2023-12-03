@@ -23,11 +23,10 @@ def main(cfg: omegaconf.DictConfig):
     print(omegaconf.OmegaConf.to_yaml(cfg, resolve=True))
     cfg = configs.as_structured_config(cfg)
     configs.validate(cfg)
-
     agent = msa_hyper.MSAHyper(
         cfg.msa_hyper_cfg,
         policy_cfg=cfg.policy_cfg,
-        hypernet_cfg=cfg.hypernet_cfg
+        critic_cfg=cfg.critic_cfg
     )
     training_loop.train_agent(cfg, agent)
 

@@ -173,3 +173,4 @@ logs/*
 
 # saved models
 results/*
+*.tar

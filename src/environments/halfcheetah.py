@@ -49,6 +49,7 @@ class MoHalfCheetah(HalfCheetahEnv, gym.utils.EzPickle):
               In this case the first reward component is the speed reward, 
               while the second component is the energy reward.
         """
+        assert not np.isnan(action).any(), f"Got a nan action! {action}"
         xpos_before = self.data.qpos[0]
         action = np.clip(action, -1.0, 1.0)
         self.do_simulation(action, self.frame_skip)
@@ -70,4 +71,9 @@ class MoHalfCheetah(HalfCheetahEnv, gym.utils.EzPickle):
                 "x_velocity": x_velocity,
                 "x_position": xpos_after
         }
+
+        if self.render_mode == "human":
+            self.render()
+
+        assert not np.isnan(obs).any()
         return obs, vec_reward, terminated, False, info

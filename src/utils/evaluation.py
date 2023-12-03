@@ -41,7 +41,7 @@ def eval_agent(
     discounted_returns = np.zeros_like(np_prefs)
     disc_factor = 1.0
     while not done:
-        action = agent.take_action(th_obs, prefs)
+        action = agent.eval_action(th_obs, prefs)
         np_action = action.detach().cpu().numpy()
         obs, reward, terminated, truncated, info = env.step(np_action)
         done = terminated or truncated

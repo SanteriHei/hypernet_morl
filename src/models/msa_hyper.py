@@ -10,8 +10,8 @@ import torch.nn.functional as F
 
 from .. import structured_configs as sconfigs
 from ..utils import common, configs, nets
-from .hypernet import HyperNet
-from .policy import GaussianPolicy
+from .critic import HyperCritic
+from .policy import GaussianPolicy, HyperPolicy
 
 
 class MSAHyper:
@@ -19,7 +19,7 @@ class MSAHyper:
             self,
             cfg: sconfigs.MSAHyperConfig, *,
             policy_cfg: sconfigs.PolicyConfig,
-            hypernet_cfg: sconfigs.HypernetConfig,
+            critic_cfg: sconfigs.CriticConfig,
     ):
         """Create a MSA-hyper network, that uses a modified CAPQL, with
         hypernetworks for (hopefully) generalizing the learned information
@@ -36,20 +36,31 @@ class MSAHyper:
             if isinstance(self._cfg.device, str) else self._cfg.device
         )
 
-        self._policy = GaussianPolicy(policy_cfg).to(self._device)
+        match policy_cfg.policy_type:
+            case "gaussian":
+                self._policy = GaussianPolicy(policy_cfg).to(self._device)
+            case "hyper-gaussian":
+                self._policy = HyperPolicy(policy_cfg).to(self._device)
+            case _:
+                raise ValueError((
+                    f"Unknown policy-type {policy_cfg.policy_type!r}! "
+                    "Should be either a 'gaussian' or 'hyper-gaussian'"
+                ))
 
+        # Create the critics
+        critic = HyperCritic
         self._critics = [
-            HyperNet(hypernet_cfg).to(self._device)
+            critic(critic_cfg).to(self._device)
             for _ in range(self._cfg.n_networks)
         ]
 
         self._critic_targets = [
-            HyperNet(hypernet_cfg).to(self._device)
+            critic(critic_cfg).to(self._device)
             for _ in range(self._cfg.n_networks)
         ]
 
-        # Note: The target parameters are not updated through direct gradient
-        # descent, so we disable the gradient tracking for them.
+        # Note: The target parameters are not updated directly through gradient
+        # descent, and thus the gradient tracking is disabled for them.
         for critic, critic_target in zip(self._critics, self._critic_targets):
             # Copy the initial parameters of critics to targets
             critic_target.load_state_dict(critic.state_dict())
@@ -118,6 +129,27 @@ class MSAHyper:
         }
         torch.save(state, dir_path / "msa_hyper.tar")
 
+    @torch.no_grad
+    def eval_action(
+            self, obs: torch.Tensor, prefs: torch.Tensor
+    ) -> torch.Tensor:
+        """Take an "evaluation" action with the current policy. NOTE: No
+        gradient information is tracked during this.
+
+        Parameters
+        ----------
+        obs : torch.Tensor
+            The current observation from the environment.
+        prefs : torch.Tensor
+            The current preferences over the objectives.
+
+        Returns
+        -------
+        torch.Tensor
+            The selected action.
+        """
+        return self._policy.eval_action(obs, prefs)
+
     def take_action(
             self, obs: torch.Tensor, prefs: torch.Tensor
     ) -> torch.Tensor:
@@ -185,7 +217,8 @@ class MSAHyper:
 
         # Lastly, update the q-target networks
         for critic, critic_target in zip(self._critics, self._critic_targets):
-            nets.polyak_update(src=critic, dst=critic_target, tau=self._cfg.tau)
+            nets.polyak_update(
+                src=critic, dst=critic_target, tau=self._cfg.tau)
 
         return critic_loss, policy_loss
 
@@ -241,7 +274,7 @@ class MSAHyper:
         action, log_prob, _ = self._policy.sample_action(
             replay_sample.obs, replay_sample.prefs
         )
-        
+
         # Calculate the corresponding state-action values.
         q_values = torch.stack([
             critic(replay_sample.obs, action, replay_sample.prefs)

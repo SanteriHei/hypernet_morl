@@ -1,6 +1,6 @@
 """ Defines all the structured configs for the models """
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Tuple
 
 from omegaconf import MISSING
@@ -46,21 +46,46 @@ class ResblockConfig:
     n_resblocks: int The amount of residual blocks to add in a single block. 
         Default 2
     input_dim: int The input dimension of the network.
-    output_dim: int The ouput dimension of the network.
     activation_fn: Callable | str The activation function to use. Default "relu"
-    network_arch: Tuple[int, ...] The network architecture. Default (128, 128)
+    layer_features: Tuple[int, ...] The desired number of features per layer.
+        The last value indicates the ouput size of the network.
+        Default (128, 128)
     (i.e. two linear layers with 128 neurons)
 
     """
     n_resblocks: int = 2
     input_dim: int = MISSING
-    output_dim: int = MISSING
     activation_fn: str = "relu"
-    network_arch: Tuple[int, ...] = (128, 128)
+    layer_features: Tuple[int, ...] = (128, 128)
 
 
 @dataclass
-class HypernetConfig:
+class HyperNetConfig:
+    """
+    Configuration for a Hyper network. Contains the relevant information
+    to create the embedding and the heads for the network.
+
+    Atrributes
+    ----------
+    embedding_layers: Tuple[ResblockConfig, ...] The configuration for the 
+        embedding network.
+    dropout_rate: float | None. The dropout rate for applying in the embedding.
+        If None, no dropout will be added.
+    head_hidden_dim: int The hidden dimension for the head network. Should match
+        the ouput of the embedding layer.
+    head_init_stds: Tuple[float, ...] | float. The standard deviations used for
+        initializing the network.
+    """
+    embedding_layers: Tuple[ResblockConfig, ...] = field(
+        default_factory=lambda: (ResblockConfig, )
+    )
+    dropout_rate: float | None = None
+    head_hidden_dim: int = MISSING
+    head_init_stds: Tuple[float, ...] = MISSING
+
+
+@dataclass
+class CriticConfig:
     """
     A configuration for the Q-Hypernetwork
 
@@ -80,24 +105,20 @@ class HypernetConfig:
     use_prefs: bool
         Determines if the critic is given the preferences as an input or not.
         Default False.
-    use_obs: bool
+    use_obs: boolg
         Determines if the critic is given the observation as an input or not.
         Default False.
     """
-    resblock_arch: Tuple[ResblockConfig, ...] = field(
-        default_factory=lambda: (ResblockConfig, )
-    )
     layer_dims: Tuple[int, ...] = MISSING
-    head_init_stds: Tuple[float, ...] = MISSING
     reward_dim: int = MISSING
     obs_dim: int = MISSING
     action_dim: int = MISSING
-    head_hidden_dim: int = 1024
     activation_fn: str = "relu"
-    use_action: bool = True 
+    use_action: bool = True
     use_prefs: bool = False
     use_obs: bool = False
-    
+
+    hypernet_cfg: HyperNetConfig = MISSING
 
 
 @dataclass
@@ -106,25 +127,31 @@ class PolicyConfig:
 
     Attributes
     ----------
-    obs_dim: int The observation dimension of the used environment.
+    policy_type: {"gaussian", "hyper-gaussian"}, optional. The type of the used
+        policy. Can be either Gaussian or Hyper-Gaussian.
+    obs_dim: int The obse00rvation dimension of the used environment.
     reward_dim: int The reward dimension of the used environment.
     output_dim: int The output dimesion of the network
         (i.e. the action dimension)
-    network_arch: Tuple[int, ...] The architecture of the network as a 
-        list of neuron amounts for each layer.
+    layer_features: Tuple[int, ...] The architecture of the network as a 
+        list of the desired number of neurons in each layer.
     activation_fn: str The activation function to be used in the neural network.
         Default "relu"
     action_space_high: List[float] The upper bound of the used action space.
     action_space_low: List[float] The lower bound of the used action space.
-
+    ResblockConfig: Tuple[ResblockConfig, ...] The configuration for the 
+        residual network. Used only if 'policy_type' == 'hyper-gaussian'
     """
+    policy_type: str = "gaussian"
     obs_dim: int = MISSING
     reward_dim: int = MISSING
     output_dim: int = MISSING
-    network_arch: Tuple[int, ...] = (256, 256)
+    layer_features: Tuple[int, ...] = (256, 256)
     activation_fn: str = "relu"
     action_space_high: List[float] = MISSING
     action_space_low: List[float] = MISSING
+
+    hypernet_cfg: HyperNetConfig = MISSING
 
 
 @dataclass
@@ -163,7 +190,7 @@ class TrainingConfig:
 
         save_path: str The path where the results will be saved to.
         log_to_stdout: bool If set to True, data will be logged to stdout/stderr
-            using standard Pythob logging facilities. Default True
+            using standard Python logging facilities. Default True
         log_to_wandb: bool If set to True, data will be logged to wandb.
         Default True
         eval_every_nth: int The frequency at which the trained policy is
@@ -185,7 +212,7 @@ class TrainingConfig:
     batch_size: int = 100
     buffer_capacity: int = 10_000
     angle_deg: float = 45
-    
+
     # Logging parameters
     save_path: str = MISSING
     log_to_stdout: bool = True
@@ -201,7 +228,7 @@ class TrainingConfig:
 class Config:
     """
     The main configuration for the run
-    
+
     Attributes
     ----------
     training_cfg: TrainingConfig The used training configuration.
@@ -215,11 +242,10 @@ class Config:
     training_cfg: TrainingConfig = MISSING
     session_cfg: SessionConfig = MISSING
     policy_cfg: PolicyConfig = MISSING
-    hypernet_cfg: HypernetConfig = MISSING
+    critic_cfg: CriticConfig = MISSING
     msa_hyper_cfg: MSAHyperConfig = MISSING
     seed: int | None = None
     device: str = "cpu"
-
 
     def summarize(self) -> Dict[str, Any]:
         """Summarize the currently used configurations as a single 
@@ -231,13 +257,16 @@ class Config:
             The most relevant configuration options.
         """
         return {
-            # Training 
+            # Training
             "env_id": self.training_cfg.env_id,
+            "obs_dim": self.policy_cfg.obs_dim,
+            "reward_dim": self.policy_cfg.reward_dim,
+            "action_dim": self.critic_cfg.action_dim,
             "n_timesteps:": self.training_cfg.n_timesteps,
             "batch_size": self.training_cfg.batch_size,
             "buffer_capacity": self.training_cfg.buffer_capacity,
 
-            # MSA-hyper 
+            # MSA-hyper
             "n_networks": self.msa_hyper_cfg.n_networks,
             "alpha": self.msa_hyper_cfg.alpha,
             "tau": self.msa_hyper_cfg.tau,
@@ -248,13 +277,22 @@ class Config:
             "policy_optim": self.msa_hyper_cfg.policy_optim,
 
             # Policy
-            "policy/network_arch": self.policy_cfg.network_arch,
+            "policy/type": self.policy_cfg.policy_type,
+            "policy/layer_features": self.policy_cfg.layer_features,
             "policy/activation_fn": self.policy_cfg.activation_fn,
+            "policy/hypernet_cfg": (
+                asdict(self.policy_cfg.hypernet_cfg)
+                if self.policy_cfg.policy_type == "hyper-gaussian" else None
+            ),
 
-            # Hyper-Q net
-            "q-net/layer_dims": self.hypernet_cfg.layer_dims,
-            "q-net/activation_fn": self.hypernet_cfg.activation_fn,
-    
+            # Critic
+            "critic/layer_dims": self.critic_cfg.layer_dims,
+            "critic/activation_fn": self.critic_cfg.activation_fn,
+            "critic/use_action_input": self.critic_cfg.use_action,
+            "critic/use_obs_input": self.critic_cfg.use_obs,
+            "critic/use_prefs_input": self.critic_cfg.use_prefs,
+            "critic/hypernet_cfg": asdict(self.critic_cfg.hypernet_cfg),
+
             # Common stuff
             "seed": self.seed
         }

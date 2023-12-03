@@ -1,7 +1,7 @@
 """ Some utilities for building neural networks """
 
 import warnings
-from typing import Callable, Iterable, Tuple
+from typing import Callable, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -57,43 +57,13 @@ def init_layers(
         init_fn(layer.weight, gain=weight_gain)
         nn.init.constant_(layer.bias, bias_const)
 
-
-@torch.no_grad
-def hyper_init(
-        modules: Iterable["Head"],
-        weight_shape: Tuple[int, ...],
-        bias_shape: Tuple[int, ...],
-        method: str = "bias",
-        init_type: str = "xavier_uniform"
-):
-
-    # TODO: How this is actually applied? How would one apply different
-    # initializations for each preferences in any way?
-    if method not in ("bias", "weight"):
-        raise ValueError((f"Unknown initialization method {method!r} for "
-                          "hyper-init! Should be either 'bias' or 'weight'"))
-    init_fn = get_initialization_fn(init_type)
-
-    # Generate the common weights for each layer
-    bias = torch.zeros(bias_shape)
-    weights = torch.zeros(weight_shape)
-
-    if method == "bias":
-        init_fn(bias)
-    else:
-        init_fn(weights)
-
-    for head in modules:
-        head.init_weights(weights, bias)
-
-
 def create_mlp(
         *,
         input_dim: int,
-        output_dim: int,
-        network_arch: Tuple[int, ...],
+        layer_features: Tuple[int, ...],
         activation_fn: nn.Module | str,
-        apply_activation: Tuple[bool, ...] | bool = True
+        apply_activation: Tuple[bool, ...] | bool = True,
+        dropout_rate: Tuple[float | None, ...] | float | None = None 
 ) -> nn.Module:
     """Create a simple fully connected network using the specified architecture
     and activation function
@@ -102,10 +72,9 @@ def create_mlp(
     ----------
     input_dim : int
         The input dimension of the network.
-    output_dim : int
-        The ouput dimension of the network.
-    network_arch : Tuple[int, ...]
+    layer_features: Tuple[int, ...]
         The architecture of the network as a tuple of neurons for each layer.
+        The final feature count represents the ouput size of the network.
     activation_fn : nn.Module | str
         The used activation function.
     apply_activation Tuple[bool, ...] | bool, optional
@@ -119,29 +88,34 @@ def create_mlp(
         The MLP network.
     """
 
-    if (n_layers := len(network_arch)) < 1:
+    if (n_layers := len(layer_features)) < 1:
         raise ValueError(
             f"Expected atleast 1 layer, but got {n_layers} layers"
         )
 
     if isinstance(apply_activation, bool):
         apply_activation = (
-            apply_activation for _ in range(len(network_arch) + 1)
+            apply_activation for _ in range(len(layer_features) + 1)
         )
+    
+    if isinstance(dropout_rate, float) or dropout_rate is None:
+        dropout = (dropout_rate for _ in range(len(layer_features) + 1))
 
     if isinstance(activation_fn, str):
         activation_fn = get_activation_module(activation_fn)
 
     layers = []
-    architecture = (input_dim, *network_arch, output_dim)
+    architecture = (input_dim, *layer_features)
 
-    for use_activation, (in_dim, out_dim) in zip(
-            apply_activation, common.iter_pairwise(architecture)
+    for use_activation, dropout_rate, (in_dim, out_dim) in zip(
+            apply_activation, dropout, common.iter_pairwise(architecture)
     ):
         _LOGGER.debug(
                 f"Linear {in_dim} -> {out_dim} with activation? {use_activation}"
         )
         layers.append(nn.Linear(in_dim, out_dim))
+        if dropout_rate is not None:
+            layers.append(nn.Dropout(p=dropout_rate))
         if use_activation:
             layers.append(activation_fn())
 
@@ -186,8 +160,11 @@ def target_network(
         f"Activation function is not callable! ({activation_fn})"
 
     for w, b, scale, use_activation in iter:
-        in_var = out.unsqueeze(2) if out.ndim == 2 else out
-        out = torch.bmm(w, in_var) * scale + b
+        if out.ndim == 2:
+            out = out.unsqueeze(2)
+
+        _LOGGER.debug(f"Target net {w.shape} x {out.shape}")
+        out = torch.bmm(w, out) * scale + b
         if use_activation:
             out = activation_fn(out)
     return out

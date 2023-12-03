@@ -30,15 +30,27 @@ loggers:
   train:
     handlers:
       - console
-    level: INFO
+    level: DEBUG
     propagate: False
   utils.nets:
     handlers: 
       - console
-    level: INFO 
+    level: INFO
     propagate: False
   models.gaussian_policy:
     handlers: 
       - console
     level: INFO 
+    propagate: False
+
+  models.hyper_critic:
+    handlers:
+      - console
+    level: INFO
+    propagate: False
+
+  hypernet.headnet:
+    handlers:
+      - console
+    level: INFO
     propagate: False

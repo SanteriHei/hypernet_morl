@@ -63,8 +63,8 @@ def register_configs(cs: ConfigStore):
         node=structured_configs.MSAHyperConfig
     )
     cs.store(
-        group="hypernet_cfg", name="base_hypernet",
-        node=structured_configs.HypernetConfig
+        group="critic_cfg", name="base_critic",
+        node=structured_configs.CriticConfig
     )
     cs.store(
         group="policy_cfg", name="base_policy",
@@ -191,58 +191,12 @@ def validate(cfg: structured_configs.MSAHyperConfig):
     cfg : structured_configs.MSAHyperConfig
         The configuration to validate.
     """
-    if cfg.hypernet_cfg.reward_dim != len(cfg.training_cfg.ref_point):
+    if cfg.critic_cfg.reward_dim != len(cfg.training_cfg.ref_point):
         raise ValueError(("Reward dim and ref-point mismatch! ref-point "
                           f"{cfg.training_cfg.ref_point} vs "
-                          f"{cfg.hypernet_cfg.reward_dim}"))
+                          f"{cfg.critic_cfg.reward_dim}"))
     
     missing_items = omegaconf.OmegaConf.missing_keys(cfg)
     if len(missing_items) > 0:
         raise ValueError(("Missing values for the following "
                           f"keys {missing_items}"))
-
-
-# def fill_missing_fields(cfg: omegaconf.DictConfig) -> omegaconf.DictConfig:
-#     """Fill any missing values from the configuration. Mostly used for filling
-#     values that require instantiating a gym env.
-# 
-#     Parameters
-#     ----------
-#     cfg : omegaconf.DictConfig
-#         The configuration to fill.
-# 
-#     Returns
-#     -------
-#     omegaconf.DictConfig
-#         The configuration with the missing values filled.
-#     """
-#     tmp_env = mo_gym.make(cfg.training_cfg.env_id)
-#     reward_dim = tmp_env.get_wrapper_attr("reward_space").shape[0]
-#     obs_dim = tmp_env.observation_space.shape[0]
-#     action_dim = tmp_env.action_space.shape[0]
-# 
-#     cfg.hypernet_cfg.reward_dim = reward_dim
-#     cfg.hypernet_cfg.obs_dim = obs_dim
-#     cfg.hypernet_cfg.action_dim = action_dim
-#     if (
-#             len(cfg.hypernet_cfg.resblock_arch) > 0 and
-#             omegaconf.OmegaConf.is_missing(
-#                 cfg.hypernet_cfg.resblock_arch[0], "input_dim"
-#             )
-#     ):
-#         cfg.hypernet_cfg.resblock_arch[0].input_dim = obs_dim + reward_dim
-#     cfg.policy_cfg.obs_dim = obs_dim
-#     cfg.policy_cfg.reward_dim = reward_dim
-#     cfg.policy_cfg.output_dim = action_dim
-#     cfg.policy_cfg.action_space_high = tmp_env.action_space.high.tolist()
-#     cfg.policy_cfg.action_space_low = tmp_env.action_space.low.tolist()
-# 
-#     if omegaconf.OmegaConf.is_missing(cfg.training_cfg, "angle"):
-#         cfg.training_cfg.angle = np.pi * (22.5/100)
-# 
-#     tmp_env.close()
-#     assert len(missing_items := omegaconf.OmegaConf.missing_keys(cfg)) == 0, \
-#         ("Expected that all missing items are filled, found items "
-#          f"{missing_items} without a value")
-# 
-#     return cfg

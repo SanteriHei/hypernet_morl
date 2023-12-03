@@ -4,7 +4,7 @@ defaults:
   - training_cfg: train
   - session_cfg: session
   - policy_cfg: policy
-  - hypernet_cfg: hypernet
+  - critic_cfg: hypercritic
   - msa_hyper_cfg: msa_hyper
 
 seed: 0

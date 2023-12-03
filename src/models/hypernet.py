@@ -3,56 +3,152 @@ from __future__ import annotations
 
 import math
 import warnings
-from typing import Callable, Dict, Tuple
+from typing import Callable, Dict, Iterable, List, Tuple
 
 import numpy as np
 import torch
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 
 from .. import structured_configs
-from ..utils import common, configs, nets
+from ..utils import common, configs, log, nets
 
 
-class HeadV2(nn.Module):
+class HeadNet(nn.Module):
     def __init__(
             self, *,
             hidden_dim: int,
             target_input_dim: int,
             target_output_dim: int,
-            network_arch: Tuple[int, ...]
+            layer_features: Tuple[int, ...],
+            n_outputs: int = 1,
+            init_stds: Iterable[float] | float = 0.05
     ):
+        """Define a "Head" for a given module, that is responsible for 
+        generating all parameters for a neural network 
+
+        Parameters
+        ----------
+        hidden_dim : int
+            The hiddend dimension of the embedding
+        target_input_dim : int
+            The input dimension of the target network.
+        target_output_dim : int
+            The ouput dimension of the target network.
+        network_arch : Tuple[int, ...]
+            The network architecture as the number of neurons in the layers.
+        n_outputs : int, optional
+            The number of output layers the network has. Default 1.
+        init_stds : Iterable[float] | float, optional
+            The standard deviation(s) used in the initialization. Default 0.05
+        """
         super().__init__()
+        self._logger = log.get_logger("hypernet.headnet")
 
         self._weight_layers = nn.ModuleList()
         self._bias_layers = nn.ModuleList()
         self._scale_layers = nn.ModuleList()
+        self._target_output_dims = []
+        self._target_input_dims = []
 
-        network_arch = (hidden_dim, *network_arch)
-
-        for in_dim, out_dim in common.iter_pairwise(network_arch):
-            self._weight_layers.append(nn.Linear(in_dim, out_dim))
-            self._bias_layers.append(nn.Linear(in_dim, out_dim))
-            self._scale_layers.append(nn.Liner(in_dim, out_dim))
-
-        # Lastly add the layer that actually ouputs the weights
         self._weight_layers.append(
-            nn.Linear(out_dim, target_input_dim*target_output_dim)
+            nn.Linear(hidden_dim, target_input_dim * layer_features[0])
         )
+        self._scale_layers.append(
+            nn.Linear(hidden_dim, layer_features[0])
+        )
+        self._bias_layers.append(
+            nn.Linear(hidden_dim, layer_features[0])
+        )
+        self._target_output_dims.append(layer_features[0])
+        self._target_input_dims.append(target_input_dim)
 
-        self._bias_layers.append(nn.Linear(out_dim, target_output_dim))
-        self._scale_layers.append(nn.Liner(out_dim, target_output_dim))
+        for in_dim, out_dim in common.iter_pairwise(layer_features):
+            self._logger.debug(
+                f"Weight: Linear {hidden_dim} -> {out_dim*in_dim}"
+            )
+            self._logger.debug(
+                f"bias, scale: Linear {hidden_dim} -> {out_dim}"
+            )
+            self._weight_layers.append(nn.Linear(hidden_dim, in_dim*out_dim))
+            self._bias_layers.append(nn.Linear(hidden_dim, out_dim))
+            self._scale_layers.append(nn.Linear(hidden_dim, out_dim))
+            self._target_output_dims.append(out_dim)
+            self._target_input_dims.append(in_dim)
 
-    def forward(self, x: torch.Tensor):
+
+        # Lastly add the layer(s) that actually ouputs the weights
+        for i in range(n_outputs):
+            self._logger.debug(
+                f"Output {i+1}: Weight: Linear "
+                f"{hidden_dim} -> {target_output_dim*layer_features[-1]}"
+            )
+
+            self._logger.debug(
+                f"Output {i+1}: bias, scale: Linear "
+                f"{hidden_dim} -> {target_output_dim}"
+            )
+            self._weight_layers.append(
+                nn.Linear(hidden_dim, layer_features[-1]*target_output_dim)
+            )
+            self._bias_layers.append(nn.Linear(hidden_dim, target_output_dim))
+            self._scale_layers.append(nn.Linear(hidden_dim, target_output_dim))
+            self._target_output_dims.append(target_output_dim)
+            self._target_input_dims.append(layer_features[-1])
+
+        self._init_layers(init_stds)
+
+    def forward(
+            self, x: torch.Tensor
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+        """The forward pass of the head. Generates the weights, biases and 
+        the scales for the specified target network.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            The input for the hypernet.
+
+        Returns
+        -------
+        Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]
+            The weights, biases and scales for each layer. The last n_outputs
+            layers contain the parameters for the ouput layers.
+        """
         iter = zip(self._weight_layers, self._bias_layers, self._scale_layers)
         weights = []
         biases = []
         scales = []
-        for weight_l, bias_l, scale_l in iter:
-            weights.append(weight_l(x))
-            biases.append(bias_l(x))
-            scales.append(scale_l(x))
+        for i, (weight_l, bias_l, scale_l) in enumerate(iter):
+            target_in, target_out = self._target_input_dims[i], self._target_output_dims[i]
+            param_w = weight_l(x).view(-1, target_out, target_in)
+            param_b = bias_l(x).view(-1, target_out, 1)
+            param_s = scale_l(x).view(-1, target_out, 1)
+            weights.append(param_w)
+            biases.append(param_b)
+            scales.append(param_s)
         return weights, biases, scales
+
+    @torch.no_grad
+    def _init_layers(self, init_stds: Iterable[float] | float):
+        if isinstance(init_stds, float):
+            stds = (init_stds for _ in range(len(self._bias_layers)))
+        else:
+            stds = init_stds
+
+        iter = zip(
+            stds, self._weight_layers, self._bias_layers, self._scale_layers
+        )
+
+        for std, weight_l, bias_l, scale_l in iter:
+            nn.init.uniform_(weight_l.weight, -std, std)
+            nn.init.uniform_(bias_l.weight, -std, std)
+            nn.init.uniform_(scale_l.weight, -std, std)
+
+            # Initialize biases to zeros
+            nn.init.zeros_(weight_l.bias)
+            nn.init.zeros_(bias_l.bias)
+            nn.init.zeros_(scale_l.bias)
 
 
 class Head(nn.Module):
@@ -77,6 +173,10 @@ class Head(nn.Module):
             The size of the hidden dimension used in the layers.
         """
         super().__init__()
+        warnings.warn(
+            "'Head' is deprecated! Use 'HeadNet' instead!",
+            category=DeprecationWarning
+        )
 
         self._target_input_dim = target_input_dim
         self._target_output_dim = target_output_dim
@@ -159,8 +259,7 @@ class ResBlock(nn.Module):
     def __init__(
             self, *,
             input_dim: int,
-            output_dim: int,
-            network_arch: Tuple[int, ...],
+            layer_features: Tuple[int, ...],
             activation_fn: str | Callable = "relu"
     ):
         """Create a residual block that consists of a MLP.
@@ -179,18 +278,17 @@ class ResBlock(nn.Module):
         """
         super().__init__()
 
-        assert (n_layers := len(network_arch)) >= 1, \
-           f"Expected atleast 2 layer resblock, got {n_layers} layers instead"
+        assert (n_layers := len(layer_features)) >= 1, \
+            f"Expected atleast 2 layer resblock, got {n_layers} layers instead"
 
         # Do not apply activation function to the last layer.
         apply_activation = tuple(
-            i != len(network_arch) for i in range(len(network_arch) + 1)
+            i != len(layer_features) for i in range(len(layer_features) + 1)
         )
 
         self._network = nets.create_mlp(
             input_dim=input_dim,
-            output_dim=output_dim,
-            network_arch=network_arch,
+            layer_features=layer_features,
             activation_fn=activation_fn,
             apply_activation=apply_activation
         )
@@ -217,9 +315,8 @@ class Embedding(nn.Module):
 
     def __init__(
         self, *,
-        reward_dim: int,
-        obs_dim: int,
-        resblock_arch: Tuple[structured_configs.ResblockConfig, ...],
+        embedding_layers: Tuple[structured_configs.ResblockConfig, ...],
+        dropout_rate: Iterable[float] | float | None = None
     ):
         """Generate an "embedding" layer that transfers the current observation
         and preferences over the objectives into latent variable.
@@ -237,14 +334,8 @@ class Embedding(nn.Module):
         """
         super().__init__()
 
-        warnings.warn(
-            ("Parameters 'reward_dim' and 'obs_dim' are deprecated, and "
-             " they will be replaced by the input dim of the first resblock"
-             ), DeprecationWarning)
-
-        self._hypernet = self._construct_network(
-            resblock_arch
-        )
+        # TODO: Implement dropout modules
+        self._hypernet = self._construct_network(embedding_layers)
         self._init_layers()
 
     def forward(
@@ -270,13 +361,14 @@ class Embedding(nn.Module):
         # Condition the network on the preferences
         x = self._hypernet(torch.cat((obs, weights), dim=-1))
         return x
-    
+
     @torch.no_grad()
     def _init_layers(self):
         for module in self._hypernet.modules():
             if isinstance(module, nn.Linear):
                 # Bit hacky to use a private function for this!
-                fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(module.weight)
+                fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(
+                    module.weight)
                 bound = 1.0 / math.sqrt(2 * fan_in)
                 nn.init.uniform_(module.weight, -bound, bound)
 
@@ -300,22 +392,18 @@ class Embedding(nn.Module):
         """
         blocks = []
         for i, block_cfg in enumerate(residual_network_arch):
-            assert len(block_cfg.network_arch) > 0, \
+            assert len(block_cfg.layer_features) > 0, \
                 "Resblock needs to have atleast one layer"
             blocks.append(
                 nn.Linear(
                     block_cfg.input_dim,
-                    block_cfg.network_arch[0]
+                    block_cfg.layer_features[0]
                 )
             )
             for ii in range(block_cfg.n_resblocks):
-                output_dim = (block_cfg.output_dim
-                              if ii == block_cfg.n_resblocks - 1 else
-                              block_cfg.network_arch[-1])
                 blocks.append(ResBlock(
-                    input_dim=block_cfg.network_arch[0],
-                    output_dim=output_dim,
-                    network_arch=block_cfg.network_arch,
+                    input_dim=block_cfg.layer_features[0],
+                    layer_features=block_cfg.layer_features,
                     activation_fn=block_cfg.activation_fn
                 ))
         return nn.Sequential(*blocks)
@@ -324,7 +412,7 @@ class Embedding(nn.Module):
 class HyperNet(nn.Module):
     def __init__(
         self,
-        cfg: structured_configs.HypernetConfig
+        cfg: structured_configs.CriticConfig
     ):
         """Hypernetwork for a Q-network, that is used to approximate
         the preference conditioned state-action values Q(s, a, w)
@@ -335,12 +423,16 @@ class HyperNet(nn.Module):
             The configuration for the Q-Hypernetwork
         """
         super().__init__()
+        warnings.warn(
+            "HyperNet is deprecated! Use critics.HyperCritic instead",
+            category=DeprecationWarning
+        )
 
         self._cfg = configs.as_structured_config(cfg)
         self._embeddeding = Embedding(
             reward_dim=cfg.reward_dim,
             obs_dim=cfg.obs_dim,
-            resblock_arch=cfg.resblock_arch
+            embedding_layers=cfg.resblock_arch
         )
 
         target_input_dim = self._get_target_input_dim()
@@ -367,7 +459,7 @@ class HyperNet(nn.Module):
             self._activation_fn = nets.get_activation_fn(cfg.activation_fn)
 
     @property
-    def config(self) -> structured_configs.HypernetConfig:
+    def config(self) -> structured_configs.CriticConfig:
         """Returns the configuration used for the hypernet.
 
         Returns
@@ -405,12 +497,15 @@ class HyperNet(nn.Module):
         """
         z = self._embeddeding(obs, prefs)
         weights, biases, scales = zip(*[head(z) for head in self._heads])
+        print("Hypernet generated params:")
+        for w, b, s  in zip(weights, biases, scales):
+            print(f"W: {w.shape} | B {b.shape} | S {s.shape}")
 
         # Do not apply activation on the last layer
         # (i.e. create mask where last item is false)
         apply_activation = np.arange(len(weights)) < len(weights) - 1
 
-        target_net_input = self._get_target_input(obs, action, prefs) 
+        target_net_input = self._get_target_input(obs, action, prefs)
 
         out = nets.target_network(
             target_net_input, weights=weights, biases=biases, scales=scales,
@@ -418,25 +513,32 @@ class HyperNet(nn.Module):
         )
         # Remove the singleton dimension.
         return out.squeeze(2)
-    
 
     def _get_target_input_dim(self) -> int:
+        """Get the input dimension for the target network, depending the 
+        input configuration the user defined.
+
+        Returns
+        ------- 0% 
+        int
+            The input dimension of the target network.
+        """
         if (
-                not self._cfg.use_obs and 
-                not self._cfg.use_action and 
+                not self._cfg.use_obs and
+                not self._cfg.use_action and
                 not self._cfg.use_prefs
         ):
             raise ValueError(("Atleast one of 'use_obs', 'use_action' and "
                               "'use_prefs' must be True"))
-       
+
         input_dim = None
-        
+
         if self._cfg.use_action and self._cfg.use_prefs and self._cfg.use_obs:
             input_dim = self._cfg.obs_dim + self._cfg.action_dim + self._cfg.reward_dim
-        elif self._cfg.use_action and self._cfg.use_prefs: 
+        elif self._cfg.use_action and self._cfg.use_prefs:
             input_dim = self._cfg.action_dim + self._cfg.reward_dim
         elif self._cfg.use_action and self._cfg.use_obs:
-            input_dim = self._cfg.obs_dim + self._cfg.action_dim 
+            input_dim = self._cfg.obs_dim + self._cfg.action_dim
         elif self._cfg.use_prefs and self._cfg.use_obs:
             input_dim = self._cfg.reward_dim + self._cfg.obs_dim
         elif self._cfg.use_obs:
@@ -446,18 +548,15 @@ class HyperNet(nn.Module):
         elif self._cfg.use_prefs:
             input_dim = self._cfg.reward_dim
 
-        assert input_dim is not None,\
+        assert input_dim is not None, \
             (f"Unknown combination of inputs: Obs {self._cfg.use_obs} | "
              f"Action {self._cfg.use_action} | Prefs: {self._cfg.use_prefs}")
 
         return input_dim
 
-        
-
     def _get_target_input(
             self, obs: torch.Tensor, action: torch.Tensor, prefs: torch.Tensor
     ) -> torch.Tensor:
-
         """Create the input for the target network based on the use
         configuration.
 
@@ -476,18 +575,18 @@ class HyperNet(nn.Module):
             The composed input for the target network.
         """
         if (
-                not self._cfg.use_obs and 
-                not self._cfg.use_action and 
+                not self._cfg.use_obs and
+                not self._cfg.use_action and
                 not self._cfg.use_prefs
         ):
             raise ValueError(("Atleast one of 'use_obs', 'use_action' and "
                               "'use_prefs' must be True"))
-       
+
         out = None
-        
+
         if self._cfg.use_action and self._cfg.use_prefs and self._cfg.use_obs:
             out = torch.cat((obs, action, prefs), dim=-1)
-        elif self._cfg.use_action and self._cfg.use_prefs: 
+        elif self._cfg.use_action and self._cfg.use_prefs:
             out = torch.cat((obs, prefs), dim=-1)
         elif self._cfg.use_action and self._cfg.use_obs:
             out = torch.cat((obs, action), dim=-1)
@@ -500,7 +599,7 @@ class HyperNet(nn.Module):
         elif self._cfg.use_prefs:
             out = action
 
-        assert out is not None,\
+        assert out is not None, \
             (f"Unknown critic input config: obs: {self._cofg.use_obs} | "
              f"Action {self._cfg.use_action} |  Prefs {self._cfg.use_prefs}")
         return out
