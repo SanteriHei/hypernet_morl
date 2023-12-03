@@ -14,24 +14,32 @@ layer_dims:
 
 hypernet_cfg:
   head_hidden_dim: 1024
-  dropout_rate: null
   embedding_layers:
     - n_resblocks: 2
       # This will be automatically resolved with reward_dim + obs_dim
       input_dim: "${sum:${....obs_dim}, ${....reward_dim}}"
       activation_fn: "relu"
+      dropout_rates: 
+        - 0.3
+        - 0.3
       layer_features:
         - 256
         - 256
     - n_resblocks: 2
       input_dim: 256
       activation_fn: "relu"
+      dropout_rates: 
+        - 0.3
+        - 0.3
       layer_features:
         - 512
         - 512
     - n_resblocks: 2
       input_dim: 512
       activation_fn: "relu"
+      dropout_rates: 
+        - 0.3
+        - 0.3
       layer_features: 
         - 1024
         - 1024

@@ -24,6 +24,9 @@ hypernet_cfg:
       layer_features:
         - 256
         - 256
+      dropout_rates:
+        - null
+        - null
 
     - n_resblocks: 2
       input_dim: 256
@@ -31,6 +34,9 @@ hypernet_cfg:
       layer_features:
         - 512
         - 512
+      dropout_rates:
+        - null
+        - null
 
     - n_resblocks: 2
       input_dim: 512
@@ -38,6 +44,9 @@ hypernet_cfg:
       layer_features:
         - 1024
         - 1024
+      dropout_rates:
+        - null
+        - null
 
 
 

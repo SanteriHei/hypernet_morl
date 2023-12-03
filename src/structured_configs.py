@@ -49,14 +49,16 @@ class ResblockConfig:
     activation_fn: Callable | str The activation function to use. Default "relu"
     layer_features: Tuple[int, ...] The desired number of features per layer.
         The last value indicates the ouput size of the network.
-        Default (128, 128)
-    (i.e. two linear layers with 128 neurons)
+        Default (128, 128) (i.e. two linear layers with 128 neurons)
+    dropout_rates: Tuple[float | None, ...] Controls the used dropout rate. 
+        If the dropout_rate is None, no dropout is applied after that layer.
 
     """
     n_resblocks: int = 2
     input_dim: int = MISSING
     activation_fn: str = "relu"
     layer_features: Tuple[int, ...] = (128, 128)
+    dropout_rates: Tuple[float | None, ...] = (None, None)
 
 
 @dataclass
@@ -69,8 +71,6 @@ class HyperNetConfig:
     ----------
     embedding_layers: Tuple[ResblockConfig, ...] The configuration for the 
         embedding network.
-    dropout_rate: float | None. The dropout rate for applying in the embedding.
-        If None, no dropout will be added.
     head_hidden_dim: int The hidden dimension for the head network. Should match
         the ouput of the embedding layer.
     head_init_stds: Tuple[float, ...] | float. The standard deviations used for
@@ -79,7 +79,6 @@ class HyperNetConfig:
     embedding_layers: Tuple[ResblockConfig, ...] = field(
         default_factory=lambda: (ResblockConfig, )
     )
-    dropout_rate: float | None = None
     head_hidden_dim: int = MISSING
     head_init_stds: Tuple[float, ...] = MISSING
 

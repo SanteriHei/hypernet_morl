@@ -223,7 +223,6 @@ class HyperPolicy(nn.Module):
 
         self._embedding = hn.Embedding(
             embedding_layers=cfg.hypernet_cfg.embedding_layers,
-            dropout_rate=cfg.hypernet_cfg.dropout_rate
         )
         self._policy_head = hn.HeadNet(
                 hidden_dim=cfg.hypernet_cfg.head_hidden_dim,

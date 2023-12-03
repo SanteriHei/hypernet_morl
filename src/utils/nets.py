@@ -100,6 +100,8 @@ def create_mlp(
     
     if isinstance(dropout_rate, float) or dropout_rate is None:
         dropout = (dropout_rate for _ in range(len(layer_features) + 1))
+    else:
+        dropout = dropout_rate
 
     if isinstance(activation_fn, str):
         activation_fn = get_activation_module(activation_fn)
@@ -111,7 +113,9 @@ def create_mlp(
             apply_activation, dropout, common.iter_pairwise(architecture)
     ):
         _LOGGER.debug(
-                f"Linear {in_dim} -> {out_dim} with activation? {use_activation}"
+                (f"Linear | {in_dim} -> {out_dim} | "
+                 f"activation {activation_fn.__name__} | "
+                 f"Dropout {dropout_rate}")
         )
         layers.append(nn.Linear(in_dim, out_dim))
         if dropout_rate is not None:
@@ -163,7 +167,6 @@ def target_network(
         if out.ndim == 2:
             out = out.unsqueeze(2)
 
-        _LOGGER.debug(f"Target net {w.shape} x {out.shape}")
         out = torch.bmm(w, out) * scale + b
         if use_activation:
             out = activation_fn(out)

@@ -260,7 +260,8 @@ class ResBlock(nn.Module):
             self, *,
             input_dim: int,
             layer_features: Tuple[int, ...],
-            activation_fn: str | Callable = "relu"
+            activation_fn: str | Callable = "relu",
+            dropout_rates: Iterable[float] | float | None = None
     ):
         """Create a residual block that consists of a MLP.
 
@@ -290,7 +291,8 @@ class ResBlock(nn.Module):
             input_dim=input_dim,
             layer_features=layer_features,
             activation_fn=activation_fn,
-            apply_activation=apply_activation
+            apply_activation=apply_activation,
+            dropout_rate=dropout_rates
         )
         self.apply(nets.init_layers)
 
@@ -315,8 +317,7 @@ class Embedding(nn.Module):
 
     def __init__(
         self, *,
-        embedding_layers: Tuple[structured_configs.ResblockConfig, ...],
-        dropout_rate: Iterable[float] | float | None = None
+        embedding_layers: Tuple[structured_configs.ResblockConfig, ...]
     ):
         """Generate an "embedding" layer that transfers the current observation
         and preferences over the objectives into latent variable.
@@ -334,7 +335,6 @@ class Embedding(nn.Module):
         """
         super().__init__()
 
-        # TODO: Implement dropout modules
         self._hypernet = self._construct_network(embedding_layers)
         self._init_layers()
 
@@ -404,7 +404,8 @@ class Embedding(nn.Module):
                 blocks.append(ResBlock(
                     input_dim=block_cfg.layer_features[0],
                     layer_features=block_cfg.layer_features,
-                    activation_fn=block_cfg.activation_fn
+                    activation_fn=block_cfg.activation_fn,
+                    dropout_rates=block_cfg.dropout_rates
                 ))
         return nn.Sequential(*blocks)
 
