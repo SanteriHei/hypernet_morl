@@ -3,13 +3,13 @@
 import dataclasses
 import itertools
 import pathlib
-from typing import Tuple
+from typing import Tuple, List
 
 import torch
 import torch.nn.functional as F
 
 from .. import structured_configs as sconfigs
-from ..utils import common, configs, nets
+from ..utils import common, configs, log, nets
 from .critic import HyperCritic
 from .policy import GaussianPolicy, HyperPolicy
 
@@ -30,6 +30,7 @@ class MSAHyper:
         config : structured_configs.MSAHyperConfig
             The configuration for the MSAHyper.
         """
+        self._logger = log.get_logger("models.msa_hyper")
         self._cfg = configs.as_structured_config(cfg)
         self._device = (
             torch.device(self._cfg.device)
@@ -171,54 +172,57 @@ class MSAHyper:
         return self._policy.take_action(obs, prefs)
 
     def update(
-            self, replay_sample: common.ReplaySample
+            self, replay_samples: List[common.ReplaySample]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Update the Q-networks and the policy network.
 
         Parameters
         ----------
-        replay_sample : common.ReplaySample
-            The sample from the Replay buffer.
+        replay_sample : List[common.ReplaySample]
+            The samples from the Replay buffer that are used to train
+            the network.
 
         Returns
         -------
         Tuple[torch.Tensor, torch.Tensor]
             The loss of the critic and the policy.
         """
-        replay_sample = replay_sample.as_tensors(self._device)
-        # Get the Q-target values
-        with torch.no_grad():
-            next_state_action, next_state_log_prob, next_state_mean =\
-                self._policy.sample_action(
-                    replay_sample.next_obs, replay_sample.prefs
+        for sample in replay_samples:
+            replay_sample = sample.as_tensors(self._device)
+            # Get the Q-target values
+            with torch.no_grad():
+                next_state_action, next_state_log_prob, next_state_mean =\
+                    self._policy.sample_action(
+                        replay_sample.next_obs, replay_sample.prefs
+                    )
+
+                state_value_targets = torch.stack([
+                    target_net(
+                        replay_sample.next_obs, next_state_action, replay_sample.prefs
+                    ) for target_net in self._critic_targets
+                ])
+                # Find the minimum values among the networks and add the rewards
+                # to the minimum q-values.
+                # (third line in CAPQL pseudo-code training loop)
+                min_targets = (
+                    torch.min(state_value_targets, dim=0).values
+                    - self._cfg.alpha * next_state_log_prob.view(-1, 1)
                 )
 
-            state_value_targets = torch.stack([
-                target_net(
-                    replay_sample.next_obs, next_state_action, replay_sample.prefs
-                ) for target_net in self._critic_targets
-            ])
-            # Find the minimum values among the networks and add the rewards
-            # to the minimum q-values.
-            # (third line in CAPQL pseudo-code training loop)
-            min_targets = (
-                torch.min(state_value_targets, dim=0).values
-                - self._cfg.alpha * next_state_log_prob.view(-1, 1)
-            )
+                target_q_values = (
+                    replay_sample.rewards + self._cfg.gamma *
+                    (1 - replay_sample.dones.unsqueeze(1)) * min_targets
+                ).detach()
 
-            target_q_values = (
-                replay_sample.rewards + self._cfg.gamma *
-                (1 - replay_sample.dones.unsqueeze(1)) * min_targets
-            ).detach()
+            # Update the networks
+            critic_loss = self._update_q_network(target_q_values, replay_sample)
+            policy_loss = self._update_policy(replay_sample)
 
-        # Update the networks
-        critic_loss = self._update_q_network(target_q_values, replay_sample)
-        policy_loss = self._update_policy(replay_sample)
-
-        # Lastly, update the q-target networks
-        for critic, critic_target in zip(self._critics, self._critic_targets):
-            nets.polyak_update(
-                src=critic, dst=critic_target, tau=self._cfg.tau)
+            # Lastly, update the q-target networks
+            for critic, critic_target in zip(self._critics, self._critic_targets):
+                nets.polyak_update(
+                    src=critic, dst=critic_target, tau=self._cfg.tau
+                )
 
         return critic_loss, policy_loss
 

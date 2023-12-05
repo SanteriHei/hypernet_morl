@@ -2,13 +2,77 @@
 from __future__ import annotations
 
 import itertools
+import json
+import numbers
+import pathlib
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable, Mapping
 
 import numpy as np
 import numpy.typing as npt
 import pymoo.util.ref_dirs
 import torch
+from ruamel.yaml import YAML
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """
+    A custom encoder that converts numpy values into native Python types before
+    they are serialized.
+    """
+    def default(self, obj):
+        
+        # Only catch the numeric scalar values
+        if (
+                isinstance(obj, numbers.Number) and np.ndim(obj) == 0 and 
+                isinstance(obj, np.generic)
+        ):
+            return obj.item()
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        else:
+            # Let the basemethod handle the rest
+            return json.JSONEncoder.default(self, obj)
+
+
+def dump_json(filepath: pathlib.Path | str, payload: Mapping[str, Any]):
+    """Writes the given mapping as a json file. Handles numpy arrays as well.
+
+    Parameters
+    ----------
+    filepath : pathlib.Path | str
+        The destination for the data.
+    payload : Mapping[str, Any]
+        The data to write.
+    """
+    fpath = pathlib.Path(filepath)
+    if fpath.exists() and fpath.is_dir():
+        raise FileExistsError(
+            f"{filepath!r} already exists! (and is not a file)"
+        )
+    with fpath.open("w") as ofstream:
+        json.dump(payload, ofstream, cls=NumpyEncoder)
+
+
+def dump_yaml(filepath: pathlib.Path | str, payload: Mapping[str, Any]):
+    """
+    Writes a YAML complient data mapping to a file. YAML 1.2(?) is supported.
+
+    Parameters
+    ----------
+    filepath : pathlib.Path | str
+        The filepath to the destination,
+    payload : Mapping[str, Any]
+        The data to write.
+    """
+    yaml = YAML()
+    fpath = pathlib.Path(filepath)
+    if fpath.exists() and fpath.is_dir():
+        raise FileExistsError(
+            f"{filepath!r} already exists! (and is not a file)"
+        )
+    with fpath.open("w") as ofstream:
+        yaml.dump(payload, ofstream)
 
 
 def deg_to_rad(angle: float) -> float:
@@ -25,6 +89,7 @@ def deg_to_rad(angle: float) -> float:
         The corresponding angle in radians.
     """
     return (angle/180) * np.pi
+
 
 def iter_pairwise(x: Iterable) -> Iterable:
     """Iterate over pairs (s0, s1), (s1, s2), ... (sN-1, sN)
@@ -245,26 +310,26 @@ class ReplayBuffer:
         if use_torch:
             self._device = torch.device("cpu" if device is None else device)
             self._obs = torch.empty(
-                    (capacity, obs_dim), dtype=torch.float32
+                (capacity, obs_dim), dtype=torch.float32
             ).to(device)
             self._actions = torch.empty(
-                    (capacity, action_dim), dtype=torch.float32
+                (capacity, action_dim), dtype=torch.float32
             ).to(device)
             self._rewards = torch.empty(
-                    (capacity, reward_dim), dtype=torch.float32
+                (capacity, reward_dim), dtype=torch.float32
             ).to(device)
 
             self._prefs = torch.empty(
-                    (capacity, reward_dim), dtype=torch.float32
+                (capacity, reward_dim), dtype=torch.float32
             ).to(device)
             self._next_obs = torch.empty(
-                    (capacity, obs_dim), dtype=torch.float32
+                (capacity, obs_dim), dtype=torch.float32
             ).to(device)
-        
+
             # Store as float's to ensure that one can use them in basic
             # arithmetic operations
             self._dones = torch.empty(
-                    (capacity,), dtype=torch.float32
+                (capacity,), dtype=torch.float32
             ).to(device)
 
         else:
@@ -281,7 +346,7 @@ class ReplayBuffer:
         self._len = 0
         self._capacity = capacity
         self._rng = np.random.default_rng(seed)
-    
+
     @property
     def device(self) -> torch.device:
         if self._device is None:

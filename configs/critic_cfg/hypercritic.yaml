@@ -14,6 +14,14 @@ layer_dims:
 
 hypernet_cfg:
   head_hidden_dim: 1024
+
+  # Use the initialization from the recomposing rl paper
+  head_init_method: "uniform"
+  head_init_stds:
+    - 0.05
+    - 0.008
+
+  # Define the embedding of the hypernet.
   embedding_layers:
     - n_resblocks: 2
       # This will be automatically resolved with reward_dim + obs_dim
@@ -44,7 +52,5 @@ hypernet_cfg:
         - 1024
         - 1024
 
-  head_init_stds:
-    - 0.05
-    - 0.008
+
 

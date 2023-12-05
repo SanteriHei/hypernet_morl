@@ -1,9 +1,12 @@
 import logging
+import pathlib
 
 import gymnasium as gym
 import torch
+import numpy as np
 
-from src.utils import common, envs, evaluation, log
+import wandb
+from src.utils import common, envs, evaluation, log, pareto
 
 from . import structured_configs
 
@@ -25,7 +28,8 @@ def train_agent(cfg: structured_configs.Config, agent):
     else:
         wandb_run = None
 
-    logger = log.get_logger("train") if cfg.training_cfg.log_to_stdout else None
+    logger = log.get_logger(
+        "train") if cfg.training_cfg.log_to_stdout else None
 
     # Construct the relevant buffers
     replay_buffer = common.ReplayBuffer(
@@ -42,7 +46,7 @@ def train_agent(cfg: structured_configs.Config, agent):
         device=agent.device
     )
 
-    trained_agent = _gym_training_loop(
+    trained_agent, pareto_front_table = _gym_training_loop(
         agent,
         training_cfg=cfg.training_cfg,
         replay_buffer=replay_buffer,
@@ -56,9 +60,13 @@ def train_agent(cfg: structured_configs.Config, agent):
     if cfg.training_cfg.save_path is not None:
         if logger is not None:
             logger.info(
-                    f"Saving trained model to {cfg.training_cfg.save_path}"
+                f"Saving trained model to {cfg.training_cfg.save_path}"
             )
         trained_agent.save(cfg.training_cfg.save_path)
+        common.dump_json(
+            pathlib.Path(cfg.training_cfg.save_path) / "pareto-front.yml",
+            pareto_front_table
+        )
 
     if wandb_run is not None:
         wandb_run.finish()
@@ -86,15 +94,9 @@ def _gym_training_loop(
     global_step = 0
     num_episodes = 0
     reward_dim = env.get_wrapper_attr("reward_space").shape[0]
-    
-    # Keep track of the pareto-front
-    if wandb_run is not None:
-        eval_table = wandb_run.Table(
-                columns=[
-                    "step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2"
-                ]
-        )
 
+    # Keep track of the pareto-front
+    pareto_front_table = []
 
     # Create the preferences that are used later for evaluating the agent.
     eval_prefs = torch.tensor(
@@ -120,9 +122,13 @@ def _gym_training_loop(
         next_obs, rewards, terminated, truncated, info = env.step(action)
         replay_buffer.append(obs, action, rewards, prefs, next_obs, terminated)
 
+        # Update the agent
         if global_step > training_cfg.n_random_steps:
-            batch = replay_buffer.sample(training_cfg.batch_size)
-            critic_loss, policy_loss = agent.update(batch)
+            batches = [
+                replay_buffer.sample(training_cfg.batch_size)
+                for _ in range(training_cfg.n_gradient_steps)
+            ]
+            critic_loss, policy_loss = agent.update(batches)
 
             # Log metrics
             if global_step % training_cfg.log_every_nth == 0:
@@ -142,7 +148,7 @@ def _gym_training_loop(
                 prefs=prefs, n_episodes=training_cfg.n_eval_episodes
             )
             log.log_eval_info(
-                eval_info, global_step=global_step, 
+                eval_info, global_step=global_step,
                 wandb_run=wandb_run, logger=logger
             )
 
@@ -155,27 +161,36 @@ def _gym_training_loop(
                 ) for prefs in eval_prefs
             ]
             
-            current_front = [
-                    elem["avg_discounted_returns"] for elem in eval_data
-            ]
+            current_front, current_stds = zip(
+                *map(lambda elem: [
+                    elem["avg_discounted_returns"], elem["std_discounted_returns"]
+                ], eval_data)
+            )
+        
+            # Filter the non-dominated elements
+            non_dominated_inds = pareto.get_non_pareto_dominated_inds(
+                    current_front, remove_duplicates=True
+            )
+            current_front = np.asarray(current_front)
+            current_stds = np.asarray(current_stds)
+            current_front = current_front[non_dominated_inds].tolist()
+            current_stds = current_stds[non_dominated_inds].tolist()
 
-            current_stds = [
-                    elem["std_discounted_returns"] for elem in eval_data
-            ]
-
+            # Store the current pareto front
             for avg_disc_return, std_disc_return in zip(current_front, current_stds):
-                assert (n_elems := len(avg_disc_return)) == 2,\
-                    f"Expected two elements in eval data, got {n_elems} instead!"
-                assert (n_elems := len(std_disc_return)) == 2,\
-                    f"Expected two elements in eval data, got {n_elems} instead!"
-                eval_table.add_data(
-                        global_step,
-                        avg_disc_return[0],
-                        avg_disc_return[1],
-                        std_disc_return[0],
-                        std_disc_return[1]
-                )
-
+                assert (n_elems := len(avg_disc_return)) == 2, \
+                    ("Expected two elements in eval data, got "
+                     f"{n_elems} instead!")
+                assert (n_elems := len(std_disc_return)) == 2, \
+                    ("Expected two elements in eval data, got "
+                     f"{n_elems} instead!")
+                pareto_front_table.append({
+                    "global_step": global_step,
+                    "avg_disc_return_0": avg_disc_return[0],
+                    "avg_disc_return_1": avg_disc_return[1],
+                    "std_disc_return_0": std_disc_return[0],
+                    "std_disc_return_1": std_disc_return[1]
+                })
 
             log.log_mo_metrics(
                 current_front=current_front, ref_point=training_cfg.ref_point,
@@ -192,16 +207,28 @@ def _gym_training_loop(
         else:
             obs = next_obs
 
-    
-    # Finally, plot the final pareto-front
+    # Finally, store the pareto-front to the wandb
     if wandb_run is not None:
+        # NOTE: bit sketchy to convert the dicts to a lists using values(),
+        # eventhough the order of the values is quaranteed to be correct in
+        # python 3.7+
+        pareto_data = list(
+            map(lambda row: list(row.values()), pareto_front_table)
+        )
+        eval_table = wandb.Table(
+            columns=[
+                "step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2"
+            ],
+            data=pareto_data
+        )
+
         wandb_run.log({"eval/pareto-front": eval_table})
         wandb_run.plot_table(
-                vega_spec_name="santeriheiskanen/test",
-                data_table=eval_table,
-                fields={
-                    "x": "avg_obj1", "y": "avg_obj2", "color": "step",
-                    "tooltip_1": "std_obj1", "tooltip_2": "std_obj2"
-                }
+            vega_spec_name="santeriheiskanen/test",
+            data_table=eval_table,
+            fields={
+                "x": "avg_obj1", "y": "avg_obj2", "color": "step",
+                "tooltip_1": "std_obj1", "tooltip_2": "std_obj2"
+            }
         )
-    return agent
+    return agent, pareto_front_table

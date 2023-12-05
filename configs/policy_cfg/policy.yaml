@@ -11,12 +11,14 @@ action_space_high: "${env.action_space_high:${..training_cfg.env_id}}"
 layer_features: 
   - 256
   - 256
+  - 128
 
 hypernet_cfg:
   head_hidden_dim: 1024
+  head_init_method: "normal"
   head_init_stds:
-    - 0.05
-    - 0.008
+    - 0.0001
+    - 0.0001
   embedding_layers:
     - n_resblocks: 2
       input_dim: "${sum:${....obs_dim}, ${....reward_dim}}"
@@ -25,9 +27,8 @@ hypernet_cfg:
         - 256
         - 256
       dropout_rates:
-        - null
-        - null
-
+        - 0.3
+        - 0.3
     - n_resblocks: 2
       input_dim: 256
       activation_fn: "relu"
@@ -35,8 +36,8 @@ hypernet_cfg:
         - 512
         - 512
       dropout_rates:
-        - null
-        - null
+        - 0.2
+        - 0.2
 
     - n_resblocks: 2
       input_dim: 512
@@ -45,8 +46,8 @@ hypernet_cfg:
         - 1024
         - 1024
       dropout_rates:
-        - null
-        - null
+        - 0.1
+        - 0.1
 
 
 

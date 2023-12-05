@@ -73,19 +73,23 @@ class HyperNetConfig:
         embedding network.
     head_hidden_dim: int The hidden dimension for the head network. Should match
         the ouput of the embedding layer.
+    head_init_method {"uniform", "normal"} The initialization method used for
+        the head layers. Default uniform.
     head_init_stds: Tuple[float, ...] | float. The standard deviations used for
         initializing the network.
+    use_weight_norm: bool Controls if the weights are renormalized. Default False
     """
     embedding_layers: Tuple[ResblockConfig, ...] = field(
         default_factory=lambda: (ResblockConfig, )
     )
     head_hidden_dim: int = MISSING
+    head_init_method: str = "uniform"
     head_init_stds: Tuple[float, ...] = MISSING
 
 
 @dataclass
 class CriticConfig:
-    """
+    """s
     A configuration for the Q-Hypernetwork
 
     Attributes
@@ -186,7 +190,8 @@ class TrainingConfig:
             Default 1000
         buffer_capacity: int The maximum capacity of the buffer. Default 10_000
         angle_deg: float The angle for the data (in degrees). Default 22.5
-
+        n_gradient_steps: int The amount of update steps to take during 
+            each time the model is updated.
         save_path: str The path where the results will be saved to.
         log_to_stdout: bool If set to True, data will be logged to stdout/stderr
             using standard Python logging facilities. Default True
@@ -211,6 +216,9 @@ class TrainingConfig:
     batch_size: int = 100
     buffer_capacity: int = 10_000
     angle_deg: float = 45
+
+    # updates
+    n_gradient_steps: int = 1
 
     # Logging parameters
     save_path: str = MISSING

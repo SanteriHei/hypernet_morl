@@ -66,7 +66,7 @@ class GaussianPolicy(nn.Module):
             "_action_scale", (action_space_high - action_space_low) / 2.0
         )
         self.register_buffer(
-            "_action_bias", (action_space_high - action_space_low) / 2.0
+            "_action_bias", (action_space_high + action_space_low) / 2.0
         )
 
     @property
@@ -176,14 +176,12 @@ class GaussianPolicy(nn.Module):
 
         normal_distr = torch.distributions.Normal(mean, std)
         x_t = normal_distr.rsample()  # reparmeterization trick
-        self._logger.debug(f"reparametrization trick x_t shape {x_t.shape}")
 
         # Convert the sample to the (-1, 1) scale
         y_t = torch.tanh(x_t)
         action = y_t * self._action_scale + self._action_bias
 
         log_prob = normal_distr.log_prob(x_t)
-        self._logger.debug(f"log_prob shape {log_prob.shape}")
 
         # Enforce the action bounds
         # Compute the log prob as the normal distr sample which is processed by
@@ -229,7 +227,10 @@ class HyperPolicy(nn.Module):
                 layer_features=cfg.layer_features,
                 target_output_dim=cfg.output_dim,
                 target_input_dim=cfg.obs_dim + cfg.reward_dim,
-                n_outputs=2
+                n_outputs=2,
+                init_method=cfg.hypernet_cfg.head_init_method,
+                init_stds=cfg.hypernet_cfg.head_init_stds,
+
         )
 
         # Create the mask for the activation functions
@@ -250,7 +251,7 @@ class HyperPolicy(nn.Module):
             "_action_scale", (action_space_high - action_space_low) / 2.0
         )
         self.register_buffer(
-            "_action_bias", (action_space_high - action_space_low) / 2.0
+            "_action_bias", (action_space_high + action_space_low) / 2.0
         )
 
     @property
@@ -314,7 +315,6 @@ class HyperPolicy(nn.Module):
             policy_input.unsqueeze_(-2)
 
 
-        self._logger.debug(f"Policy input size {policy_input.shape}")
         h = nets.target_network(
             policy_input,
             weights=weights[:-2],
@@ -340,9 +340,6 @@ class HyperPolicy(nn.Module):
         mean.squeeze_([0, 2])
         log_std.squeeze_([0, 2])
         
-        # TODO: REMOVE, as these require synchronization between cpu and GPU
-        assert not torch.isnan(mean).any(), f"Got a nan output {mean}"
-        assert not torch.isnan(log_std).any(), f"Got a nan output {mean}"
         return mean, log_std
 
     def sample_action(
@@ -365,17 +362,16 @@ class HyperPolicy(nn.Module):
         """
         mean, log_std = self.forward(obs, prefs)
         std = log_std.exp()
-
+        
+        # self._logger.debug(f"Taking actions from N({mean.max()}, {std.max()})")
         normal_distr = torch.distributions.Normal(mean, std)
         x_t = normal_distr.rsample()  # Reparametrization trick
-        self._logger.debug(f"Reparametrization trick x_t shape {x_t.shape}")
 
         # Scale the sample to (-1, 1)
         y_t = torch.tanh(x_t)
         action = y_t * self._action_scale + self._action_bias
 
         log_prob = normal_distr.log_prob(x_t)
-        self._logger.debug(f"Log-prob shape {log_prob.shape}")
 
         # Enforce the action bounds
         # Compute the log-prob as the normal distribution sample which

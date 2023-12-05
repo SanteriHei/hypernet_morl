@@ -37,10 +37,15 @@ loggers:
       - console
     level: INFO
     propagate: False
-  models.gaussian_policy:
+  models.msa_hyper:
     handlers: 
       - console
     level: INFO 
+    propagate: False
+  models.gaussian_policy:
+    handlers: 
+      - console
+    level: INFO
     propagate: False
 
   models.hyper_critic:
@@ -52,5 +57,5 @@ loggers:
   hypernet.headnet:
     handlers:
       - console
-    level: INFO
+    level: DEBUG
     propagate: False

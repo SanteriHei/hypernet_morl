@@ -8,7 +8,7 @@ buffer_capacity: 10_000
 log_every_nth: 100
 eval_every_nth: 200
 n_eval_episodes: 5
-n_eval_prefs: 1000
+n_eval_prefs: 100
 env_id: "mo-hopper-v4-fork"
 angle_deg: 45
 save_path: "test"

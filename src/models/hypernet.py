@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import warnings
-from typing import Callable, Dict, Iterable, List, Tuple
+from typing import Callable, Dict, Iterable, List, Literal, Tuple
 
 import numpy as np
 import torch
@@ -22,13 +22,16 @@ class HeadNet(nn.Module):
             target_output_dim: int,
             layer_features: Tuple[int, ...],
             n_outputs: int = 1,
-            init_stds: Iterable[float] | float = 0.05
+            init_method: Literal["uniform", "normal"] = "uniform",
+            init_stds: Iterable[float] | float = 0.02
     ):
         """Define a "Head" for a given module, that is responsible for 
         generating all parameters for a neural network 
 
         Parameters
         ----------
+        cfg: structured_configs.HyperNetConfig
+            The configuration for the hypernet.
         hidden_dim : int
             The hiddend dimension of the embedding
         target_input_dim : int
@@ -39,12 +42,17 @@ class HeadNet(nn.Module):
             The network architecture as the number of neurons in the layers.
         n_outputs : int, optional
             The number of output layers the network has. Default 1.
+        init_method: Literal["uniform", "normal"], optional
+            The initialization method used for the layers. Default "uniform"
         init_stds : Iterable[float] | float, optional
             The standard deviation(s) used in the initialization. Default 0.05
         """
+
+        # assert init_method in ("uniform", "normal"), \
+        #     f"Unknown init method {init_method!r}"
+
         super().__init__()
         self._logger = log.get_logger("hypernet.headnet")
-
         self._weight_layers = nn.ModuleList()
         self._bias_layers = nn.ModuleList()
         self._scale_layers = nn.ModuleList()
@@ -70,12 +78,13 @@ class HeadNet(nn.Module):
             self._logger.debug(
                 f"bias, scale: Linear {hidden_dim} -> {out_dim}"
             )
-            self._weight_layers.append(nn.Linear(hidden_dim, in_dim*out_dim))
+            self._weight_layers.append(
+                nn.Linear(hidden_dim, in_dim*out_dim)
+            )
             self._bias_layers.append(nn.Linear(hidden_dim, out_dim))
             self._scale_layers.append(nn.Linear(hidden_dim, out_dim))
             self._target_output_dims.append(out_dim)
             self._target_input_dims.append(in_dim)
-
 
         # Lastly add the layer(s) that actually ouputs the weights
         for i in range(n_outputs):
@@ -91,12 +100,16 @@ class HeadNet(nn.Module):
             self._weight_layers.append(
                 nn.Linear(hidden_dim, layer_features[-1]*target_output_dim)
             )
-            self._bias_layers.append(nn.Linear(hidden_dim, target_output_dim))
-            self._scale_layers.append(nn.Linear(hidden_dim, target_output_dim))
+            self._bias_layers.append(
+                nn.Linear(hidden_dim, target_output_dim)
+            )
+            self._scale_layers.append(
+                nn.Linear(hidden_dim, target_output_dim)
+            )
             self._target_output_dims.append(target_output_dim)
             self._target_input_dims.append(layer_features[-1])
 
-        self._init_layers(init_stds)
+        self._init_layers(init_method, init_stds)
 
     def forward(
             self, x: torch.Tensor
@@ -130,20 +143,44 @@ class HeadNet(nn.Module):
         return weights, biases, scales
 
     @torch.no_grad
-    def _init_layers(self, init_stds: Iterable[float] | float):
+    def _init_layers(
+            self, init_method: Literal["uniform", "normal"],
+            init_stds: Tuple[float, ...] | float
+    ):
+        """
+        Initialize the layers of a hyper network.
+
+        Parameters
+        ----------
+        init_stds : Iterable[float] | float
+            The initial standard deviations
+        """
         if isinstance(init_stds, float):
-            stds = (init_stds for _ in range(len(self._bias_layers)))
-        else:
-            stds = init_stds
+            tmp = (
+                init_stds for _ in range(len(self._bias_layers))
+            )
+            init_stds = tmp
 
         iter = zip(
-            stds, self._weight_layers, self._bias_layers, self._scale_layers
+            init_stds, self._weight_layers, self._bias_layers, self._scale_layers
         )
 
+        self._logger.debug(f"Initializing using {init_method!r}")
         for std, weight_l, bias_l, scale_l in iter:
-            nn.init.uniform_(weight_l.weight, -std, std)
-            nn.init.uniform_(bias_l.weight, -std, std)
-            nn.init.uniform_(scale_l.weight, -std, std)
+            if init_method == "uniform":
+                nn.init.uniform_(weight_l.weight, -std, std)
+                nn.init.uniform_(bias_l.weight, -std, std)
+                nn.init.uniform_(scale_l.weight, -std, std)
+            elif init_method == "normal":
+                self._logger.debug(f"normal with std={std}/den")
+                den = np.ceil(np.sqrt(np.prod(weight_l.weight.shape)))
+                nn.init.normal_(weight_l.weight, mean=0.0, std=std/den)
+
+                den = np.ceil(np.sqrt(np.prod(bias_l.weight.shape)))
+                nn.init.normal_(bias_l.weight, mean=0.0, std=std/den)
+
+                den = np.ceil(np.sqrt(np.prod(scale_l.weight.shape)))
+                nn.init.normal_(scale_l.weight, mean=0.0, std=std/den)
 
             # Initialize biases to zeros
             nn.init.zeros_(weight_l.bias)
@@ -364,6 +401,9 @@ class Embedding(nn.Module):
 
     @torch.no_grad()
     def _init_layers(self):
+        """
+        Initialize the layers using fan-in Kaiming uniform initialization.
+        """
         for module in self._hypernet.modules():
             if isinstance(module, nn.Linear):
                 # Bit hacky to use a private function for this!
@@ -499,7 +539,7 @@ class HyperNet(nn.Module):
         z = self._embeddeding(obs, prefs)
         weights, biases, scales = zip(*[head(z) for head in self._heads])
         print("Hypernet generated params:")
-        for w, b, s  in zip(weights, biases, scales):
+        for w, b, s in zip(weights, biases, scales):
             print(f"W: {w.shape} | B {b.shape} | S {s.shape}")
 
         # Do not apply activation on the last layer

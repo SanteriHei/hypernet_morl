@@ -11,7 +11,7 @@ angle_deg: 22.5
 eval_every_nth: 200
 log_every_nth: 100
 n_eval_episodes: 5
-n_eval_prefs: 1000
+n_eval_prefs: 100
 ref_point:
   - -100.0
   - -100.0

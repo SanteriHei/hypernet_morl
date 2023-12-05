@@ -40,7 +40,8 @@ class HyperCritic(nn.Module):
             target_output_dim=cfg.reward_dim,
             layer_features=cfg.layer_dims,
             n_outputs=1,
-            init_stds=cfg.hypernet_cfg.head_init_stds,
+            init_method=cfg.hypernet_cfg.head_init_method,
+            init_stds=cfg.hypernet_cfg.head_init_stds
         )
 
         # create mask, such that the activation function is not applied at the
