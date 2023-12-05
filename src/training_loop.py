@@ -64,7 +64,7 @@ def train_agent(cfg: structured_configs.Config, agent):
             )
         trained_agent.save(cfg.training_cfg.save_path)
         common.dump_json(
-            pathlib.Path(cfg.training_cfg.save_path) / "pareto-front.yml",
+            pathlib.Path(cfg.training_cfg.save_path) / "pareto-front.json",
             pareto_front_table
         )
 

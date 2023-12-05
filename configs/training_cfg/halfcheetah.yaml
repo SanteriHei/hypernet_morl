@@ -3,7 +3,7 @@ defaults:
 
 n_timesteps: 2_000_000
 n_random_steps: 3000
-env_id: "mo-halfcheetah-v4"
+env_id: "mo-halfcheetah-v4-fork"
 save_path: ???
 batch_size: 128
 buffer_capacity: 1_000_000
