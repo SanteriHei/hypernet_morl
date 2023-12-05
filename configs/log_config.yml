@@ -57,5 +57,5 @@ loggers:
   hypernet.headnet:
     handlers:
       - console
-    level: DEBUG
+    level: INFO
     propagate: False

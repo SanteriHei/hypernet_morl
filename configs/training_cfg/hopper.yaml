@@ -7,7 +7,7 @@ env_id: "mo-hopper-v4"
 save_path: ???
 batch_size: 128
 buffer_capacity: 1_000_000
-angle_deg: 22.5
+angle_deg: 45
 eval_every_nth: 200
 log_every_nth: 100
 n_eval_episodes: 5

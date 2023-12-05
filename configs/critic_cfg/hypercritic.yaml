@@ -9,6 +9,7 @@ action_dim: "${env.action_dim:${..training_cfg.env_id}}"
 activation_fn: "relu"
 layer_dims: 
   - 256
+  - 256
   - "${..reward_dim}"
 
 
@@ -37,8 +38,8 @@ hypernet_cfg:
       input_dim: 256
       activation_fn: "relu"
       dropout_rates: 
-        - 0.3
-        - 0.3
+        - 0.2
+        - 0.2
       layer_features:
         - 512
         - 512
@@ -46,8 +47,8 @@ hypernet_cfg:
       input_dim: 512
       activation_fn: "relu"
       dropout_rates: 
-        - 0.3
-        - 0.3
+        - 0.1
+        - 0.1
       layer_features: 
         - 1024
         - 1024

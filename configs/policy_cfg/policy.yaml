@@ -11,14 +11,14 @@ action_space_high: "${env.action_space_high:${..training_cfg.env_id}}"
 layer_features: 
   - 256
   - 256
-  - 128
+  - 256
 
 hypernet_cfg:
   head_hidden_dim: 1024
-  head_init_method: "normal"
+  head_init_method: "uniform"
   head_init_stds:
-    - 0.0001
-    - 0.0001
+    - 0.05
+    - 0.008
   embedding_layers:
     - n_resblocks: 2
       input_dim: "${sum:${....obs_dim}, ${....reward_dim}}"
