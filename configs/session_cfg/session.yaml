@@ -1,7 +1,7 @@
 defaults:
   - base_session
 
-entity_name: "santeriheiskanen"
+entity_name: "santeri-heiskanen"
 project_name: "msc_bench"
 experiment_group: "test-msa-hyper"
 run_name: "test-run-0"
