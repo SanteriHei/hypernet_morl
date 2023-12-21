@@ -174,7 +174,7 @@ class HyperCritic(nn.Module):
         elif self._cfg.use_action:
             out = action
         elif self._cfg.use_prefs:
-            out = action
+            out = prefs
 
         assert out is not None, \
             (f"Unknown critic input config: obs: {self._cofg.use_obs} | "
