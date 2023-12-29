@@ -74,6 +74,18 @@ def dump_yaml(filepath: pathlib.Path | str, payload: Mapping[str, Any]):
     with fpath.open("w") as ofstream:
         yaml.dump(payload, ofstream)
 
+def set_global_rng_seed(seed: int):
+    """Fix the seed for Pytorch's and Numpy's global random generators.
+
+    Parameters
+    ----------
+    seed : int
+        The seed to use.
+    """
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
 
 def deg_to_rad(angle: float) -> float:
     """Convert angle from degrees to radians.
@@ -141,7 +153,8 @@ class WeightSampler:
     def __init__(
             self, reward_dim: int, angle_rad: float,
             w: npt.NDArray | torch.Tensor | None = None,
-            device: str | torch.device | None = None
+            device: str | torch.device | None = None,
+            seed: int | None = None
     ):
         """Create a simple weight sampler that can be used to 
         sample normalized weights from a (possibly) restricted part of the 
@@ -156,11 +169,19 @@ class WeightSampler:
         w : [TODO:parameter]
             [TODO:description]
         device: str | torch.device | None, optional
+            The device where the tensors will be stored. If None, "cpu" is used 
+            as the default. Default None
+        seed: int | None, optional
+            The seed used to initialize the PRNG. Default None.
         """
         self._reward_dim = reward_dim
         self._angle = angle_rad
 
         self._device = torch.device("cpu" if device is None else device)
+            
+        # Use a generator to manage the random state instead of the global PRNG
+        self._generator = torch.Generator(self._device)
+        self._generator.manual_seed(seed)
 
         if w is None:
             w = torch.ones(self._reward_dim)
@@ -186,7 +207,10 @@ class WeightSampler:
         torch.Tensor
             The sampled weights.
         """
-        samples = torch.normal(torch.zeros(n_samples, self._reward_dim))
+        samples = torch.normal(
+                torch.zeros(n_samples, self._reward_dim),
+                generator=self._generator
+        )
 
         # Remove fluctutation on dir w.
         samples = (
