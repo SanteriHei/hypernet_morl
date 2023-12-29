@@ -9,7 +9,7 @@ import src.environments  # noqa
 from src import training_loop
 from src.models import msa_hyper
 from src.utils import configs
-
+from src.utils.common import set_global_rng_seed
 # Ignore warning of accessing reward space directly from gymnasium.
 warnings.filterwarnings(
     "ignore", category=UserWarning,
@@ -23,6 +23,9 @@ def main(cfg: omegaconf.DictConfig):
     print(omegaconf.OmegaConf.to_yaml(cfg, resolve=True))
     cfg = configs.as_structured_config(cfg)
     configs.validate(cfg)
+
+    set_global_rng_seed(cfg.seed)
+
     agent = msa_hyper.MSAHyper(
         cfg.msa_hyper_cfg,
         policy_cfg=cfg.policy_cfg,

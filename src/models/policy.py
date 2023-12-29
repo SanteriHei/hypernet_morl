@@ -406,3 +406,9 @@ class HyperPolicy(nn.Module):
         """
         mean, _ = self.forward(obs, prefs)
         return torch.tanh(mean) * self._action_scale + self._action_bias
+
+
+    def _get_target_input(
+            self, obs: torch.Tensor, prefs: torch.Tensor
+    ) -> torch.Tensor:
+        pass
