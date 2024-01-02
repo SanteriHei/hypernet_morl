@@ -180,13 +180,13 @@ class WeightSampler:
         self._device = torch.device("cpu" if device is None else device)
             
         # Use a generator to manage the random state instead of the global PRNG
-        self._generator = torch.Generator(self._device)
+        self._generator = torch.Generator(device=self._device)
         self._generator.manual_seed(seed)
 
         if w is None:
-            w = torch.ones(self._reward_dim)
+            w = torch.ones(self._reward_dim, device=self._device)
         elif isinstance(w, npt.ndarray):
-            w = torch.from_numpy(w)
+            w = torch.from_numpy(w).do(self._device)
         self._w = w / torch.norm(w)
 
     @property
@@ -208,7 +208,7 @@ class WeightSampler:
             The sampled weights.
         """
         samples = torch.normal(
-                torch.zeros(n_samples, self._reward_dim),
+                torch.zeros(n_samples, self._reward_dim, device=self._device),
                 generator=self._generator
         )
 
