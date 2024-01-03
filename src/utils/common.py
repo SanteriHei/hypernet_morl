@@ -219,7 +219,7 @@ class WeightSampler:
         samples = samples / torch.norm(samples, dim=1, keepdim=True)
 
         # Calculate the angle of the sampled vector, and shift it
-        s_angle = torch.rand(n_samples, 1) * self._angle
+        s_angle = torch.rand(n_samples, 1, device=self._device) * self._angle
 
         w_sample = torch.tan(s_angle) * samples + self._w.view(1, -1)
         w_sample = w_sample / torch.norm(w_sample, dim=1, keepdim=True, p=1)
