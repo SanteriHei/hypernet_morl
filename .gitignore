@@ -170,7 +170,11 @@ logs/*
 
 # Any logs from wandb
 **/wandb/**
+# Any artifacts
+artifacts/
 
+# Any random scripts
+scripts/*
 # saved models
 results/*
 *.tar

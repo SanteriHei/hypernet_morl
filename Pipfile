@@ -23,6 +23,8 @@ python-lsp-ruff = "*"
 ipython = "*"
 tomli = "*"
 plotly = "*"
+pyside6 = "*"
+kaleido = "*"
 
 [requires]
 python_version = "3.10"
