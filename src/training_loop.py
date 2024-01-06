@@ -38,19 +38,26 @@ def train_agent(cfg: structured_configs.Config, agent):
         action_dim=cfg.policy_cfg.output_dim,
         seed=cfg.seed,
     )
-
-    weight_sampler = common.WeightSampler(
-        reward_dim=cfg.critic_cfg.reward_dim,
-        angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg),
-        device=agent.device,
-        seed=cfg.seed,
+    
+    
+    # Only the "normal" sampler is using the angle, other samplers just ignore it
+    preference_sampler = common.get_preference_sampler(
+            cfg.training_cfg.sampler_type, cfg.critic_cfg.reward_dim, 
+            device=agent.device, seed=cfg.seed,
+            angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg)
     )
+    # preference_sampler = common.PreferenceSampler(
+    #     reward_dim=cfg.critic_cfg.reward_dim,
+    #     angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg),
+    #     device=agent.device,
+    #     seed=cfg.seed,
+    # )
 
-    trained_agent, pareto_front_table = _gym_training_loop(
+    trained_agent, pareto_front_table, preference_table = _gym_training_loop(
         agent,
         training_cfg=cfg.training_cfg,
         replay_buffer=replay_buffer,
-        weight_sampler=weight_sampler,
+        weight_sampler=preference_sampler,
         env=training_env,
         logger=logger,
         wandb_run=wandb_run,
@@ -66,6 +73,11 @@ def train_agent(cfg: structured_configs.Config, agent):
             pareto_front_table,
         )
 
+        common.dump_json(
+                pathlib.Path(cfg.training_cfg.save_path) / "preference_table.json",
+                preference_table
+        )
+
     if wandb_run is not None:
         wandb_run.finish()
 
@@ -75,7 +87,7 @@ def _gym_training_loop(
     *,
     training_cfg: structured_configs.TrainingConfig,
     replay_buffer: common.ReplayBuffer,
-    weight_sampler: common.WeightSampler,
+    weight_sampler: common.PreferenceSampler,
     env: gym.Env,
     logger: logging.Logger,
     wandb_run: log.WandbRun,
@@ -96,6 +108,8 @@ def _gym_training_loop(
 
     # Keep track of the pareto-front
     pareto_front_table = []
+    # Store the used preferences
+    preference_table = []
 
     # Create the preferences that are used later for evaluating the agent.
     eval_prefs = torch.tensor(
@@ -108,6 +122,14 @@ def _gym_training_loop(
         global_step += 1
         prefs = weight_sampler.sample(n_samples=1)
         prefs = prefs.squeeze()
+        
+        obj = {"step": global_step, "episode": num_episodes}
+        prefs_list = prefs.tolist()
+        for idx, item in enumerate(prefs_list):
+            obj[f"pref_{idx}"] = item
+        preference_table.append(obj)
+
+
 
         if global_step < training_cfg.n_random_steps:
             action = torch.tensor(
@@ -239,4 +261,4 @@ def _gym_training_loop(
                 "tooltip_2": "std_obj2",
             },
         )
-    return agent, pareto_front_table
+    return agent, pareto_front_table, preference_table

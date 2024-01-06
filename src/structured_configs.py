@@ -189,6 +189,8 @@ class TrainingConfig:
         batch_size: int The batch size used for training the MSA-hyper.
             Default 1000
         buffer_capacity: int The maximum capacity of the buffer. Default 10_000
+        sampler_type: str The used type of sampler. Can be either "normal",
+            "uniform" or "static". Default "normal"
         angle_deg: float The angle for the data (in degrees). Default 22.5
         n_gradient_steps: int The amount of update steps to take during 
             each time the model is updated.
@@ -215,6 +217,9 @@ class TrainingConfig:
     # buffer parameters
     batch_size: int = 100
     buffer_capacity: int = 10_000
+
+    # Sampler
+    sampler_type: str = "normal"
     angle_deg: float = 45
 
     # updates

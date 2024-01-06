@@ -6,7 +6,7 @@ import json
 import numbers
 import pathlib
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -73,6 +73,35 @@ def dump_yaml(filepath: pathlib.Path | str, payload: Mapping[str, Any]):
         )
     with fpath.open("w") as ofstream:
         yaml.dump(payload, ofstream)
+
+def get_preference_sampler(
+        sampler_type: Literal["normal", "uniform", "static"],
+        reward_dim: int,
+        device: str | torch.device | None = None, 
+        seed: int | None = None,
+        **kwargs: Mapping[str, Any]
+):
+
+
+    sampler = None
+    match sampler_type:
+        case "normal":
+            sampler = PreferenceSampler(
+                    reward_dim, device=device, seed=seed, **kwargs
+            )
+        case "uniform":
+            sampler = UniformSampler(
+                    reward_dim, device=device, seed=seed, **kwargs
+            )
+        case "static": 
+            sampler = StaticSampler(
+                    reward_dim, device=device, seed=seed, **kwargs
+            )
+        case _:
+            raise ValueError((f"Unknown sampler type {sampler_type!r}! Should "
+                              "be one of 'normal', 'uniform' or 'static'"))
+
+    return sampler
 
 def set_global_rng_seed(seed: int):
     """Fix the seed for Pytorch's and Numpy's global random generators.
@@ -148,7 +177,149 @@ def get_equally_spaced_weights(
     )
 
 
-class WeightSampler:
+class StaticSampler:
+
+    N_POINTS: int = 20
+
+    def __init__(
+            self, reward_dim: int, device: str | torch.device | None = None,
+            seed: int | None = None, **kwargs: Mapping[str, Any]
+    ):
+        """A static sampling scheme for the preferences, were the preferences
+        are sampled from a predetermined set of points in order.
+
+        Parameters
+        ----------
+        reward_dim : int
+            The dimensionality of the reward space.
+        device : str | torch.device | None
+            The device where the tensors are stored to.
+        seed : int | None
+            The seed used to generate the points.
+            (NOTE: has practically no effect in 2 dimensional spaces)
+        """
+        self._reward_dim = reward_dim
+        self._device = torch.device("cpu" if device is None else device)
+        self._n_points = kwargs.get("n_points", StaticSampler.N_POINTS)
+
+        self._ptr = 0
+        ref_preferences = pymoo.util.ref_dirs.get_reference_directions(
+                name="energy", n_dim=reward_dim,
+                n_points=self._n_points,
+                seed=seed
+        )
+        self._ref_preferences = torch.from_numpy(
+                ref_preferences
+        ).to(device=self._device, dtype=torch.float32)
+
+    @property
+    def reward_dim(self) -> int:
+        """ Return the used reward dimensionality """
+        return self._reward_dim
+
+    @property
+    def device(self) -> torch.device:
+        """ Return the currently used device """
+        return self._device
+
+    def sample(self, n_samples: int = 1) ->  torch.Tensor:
+        """Sample preferences from the defined preference space.
+
+        Parameters
+        ----------
+        n_samples : int
+            The amount of samples to select.
+
+        Returns
+        -------
+        torch.Tensor
+            The sampled preferences.
+        """
+
+        assert n_samples <= self._n_points,\
+                ("Cannot sample more than the amount of reference points "
+                 f"({self._n_points}) at a time!")
+
+        out = torch.full(
+                (n_samples, self._reward_dim), torch.nan,
+                dtype=torch.float32, device=self._device
+        )
+        new_ptr = min(self._n_points, self._ptr + n_samples)
+        n_points = new_ptr - self._ptr
+        
+        # If we cannot sample any points from the end of the buffer, start from
+        # the beginning
+        if n_points == 0:
+            out[:n_samples, :] = self._ref_preferences[0:n_samples, :]
+            self._ptr = n_samples
+        elif n_points < n_samples:
+            out[:n_points, :] = self._ref_preferences[self._ptr:new_ptr, :]
+            self._ptr = new_ptr
+        else:
+            out[:, :] = self._ref_preferences[self._ptr:new_ptr, :]
+            self._ptr = new_ptr
+        # self._ptr = new_ptr if new_ptr < self._n_points else 0
+        assert not out.isnan().any().item(), "Output contains NaN's!"
+        return out
+
+
+class UniformSampler:
+
+    def __init__(
+            self, reward_dim: int, device: str | torch.device | None = None,
+            seed: int | None = None, **kwargs: Mapping[str, Any]
+    ):
+        """Create a random sampler that chooses samples with uniform random
+        distribution from the preferece space.
+
+        Parameters
+        ----------
+        reward_dim : int
+            The dimensionality of the rewards.
+        device : str | torch.device | None
+            The device where the tensors will be stored. If None, "cpu" is used,
+        seed : int | None
+            The seed used to initialize the PRNG. Default None.
+        """
+        self._reward_dim = reward_dim
+        self._device = torch.device("cpu" if device is None else device)
+        
+        # Use a local generator to manage the random state instead of the
+        # global PRNG
+        self._generator = torch.Generator(device=self._device)
+        self._generator.manual_seed(seed)
+    
+    @property
+    def reward_dim(self) -> int:
+        """ Return the used reward dimension """
+        return self._reward_dim
+    
+    @property
+    def device(self) -> torch.device:
+        """ Return currently used device """
+        return self._device
+
+    def sample(self, n_samples: int = 1) -> torch.Tensor:
+        """
+        Sample preferences from the specified preference space.
+
+        Parameters
+        ----------
+        n_samples : int
+            The amount of preference samples to draw.
+
+        Returns
+        -------
+        torch.Tensor
+            The sampled preferences.
+        """
+        return torch.rand(
+                size=(n_samples, self._reward_dim),
+                generator=self._generator,
+                device=self._device, dtype=torch.float32
+        )
+
+class PreferenceSampler:
 
     def __init__(
             self, reward_dim: int, angle_rad: float,
@@ -156,8 +327,8 @@ class WeightSampler:
             device: str | torch.device | None = None,
             seed: int | None = None
     ):
-        """Create a simple weight sampler that can be used to 
-        sample normalized weights from a (possibly) restricted part of the 
+        """Create a simple preference sampler that can be used to 
+        sample normalized preferences from a (possibly) restricted part of the 
         space.
 
         Parameters
@@ -190,17 +361,22 @@ class WeightSampler:
         self._w = w / torch.norm(w)
 
     @property
+    def reward_dim(self) -> int:
+        """ Return the used reward dimension """
+        return self._reward_dim
+
+    @property
     def device(self) -> torch.device:
         """ Return the currently used device """
         return self._device
 
     def sample(self, n_samples: int) -> torch.Tensor:
-        """Sample weight from the specified weight space.
+        """Sample preferences from the specified preference space.
 
         Parameters
         ----------
         n_samples : int
-            The amount of weight samples to draw.
+            The amount of preference samples to draw.
 
         Returns
         -------
