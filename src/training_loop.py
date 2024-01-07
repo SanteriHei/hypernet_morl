@@ -46,12 +46,6 @@ def train_agent(cfg: structured_configs.Config, agent):
             device=agent.device, seed=cfg.seed,
             angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg)
     )
-    # preference_sampler = common.PreferenceSampler(
-    #     reward_dim=cfg.critic_cfg.reward_dim,
-    #     angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg),
-    #     device=agent.device,
-    #     seed=cfg.seed,
-    # )
 
     trained_agent, pareto_front_table, preference_table = _gym_training_loop(
         agent,
@@ -68,13 +62,14 @@ def train_agent(cfg: structured_configs.Config, agent):
         if logger is not None:
             logger.info(f"Saving trained model to {cfg.training_cfg.save_path}")
         trained_agent.save(cfg.training_cfg.save_path)
+        save_dir_path = pathlib.Path(cfg.training_cfg.save_path)
         common.dump_json(
-            pathlib.Path(cfg.training_cfg.save_path) / "pareto-front.json",
+            save_dir_path / "pareto-front.json",
             pareto_front_table,
         )
 
         common.dump_json(
-                pathlib.Path(cfg.training_cfg.save_path) / "preference_table.json",
+                save_dir_path / "preference_table.json",
                 preference_table
         )
 
@@ -108,7 +103,7 @@ def _gym_training_loop(
 
     # Keep track of the pareto-front
     pareto_front_table = []
-    # Store the used preferences
+    # Store the used preferences & corresponding rewards
     preference_table = []
 
     # Create the preferences that are used later for evaluating the agent.
@@ -122,18 +117,12 @@ def _gym_training_loop(
         global_step += 1
         prefs = weight_sampler.sample(n_samples=1)
         prefs = prefs.squeeze()
-        
-        obj = {"step": global_step, "episode": num_episodes}
-        prefs_list = prefs.tolist()
-        for idx, item in enumerate(prefs_list):
-            obj[f"pref_{idx}"] = item
-        preference_table.append(obj)
-
-
 
         if global_step < training_cfg.n_random_steps:
             action = torch.tensor(
-                env.action_space.sample(), device=agent.device, dtype=torch.float32
+                env.action_space.sample(),
+                device=agent.device,
+                dtype=torch.float32
             )
         else:
             with torch.no_grad():
@@ -142,6 +131,16 @@ def _gym_training_loop(
         next_obs, rewards, terminated, truncated, info = env.step(action)
         replay_buffer.append(obs, action, rewards, prefs, next_obs, terminated)
 
+        # Store the preference and the reward
+        obj = {"step": global_step, "episode": num_episodes}
+        prefs_list = prefs.tolist()
+        rewards_list = rewards.tolist()
+        for i in range(len(rewards_list)):
+            obj[f"pref_{i}"] = prefs_list[i]
+            obj[f"reward_{i}"] = rewards_list[i]
+        preference_table.append(obj)
+
+
         # Update the agent
         if global_step > training_cfg.n_random_steps:
             batches = [
@@ -149,7 +148,7 @@ def _gym_training_loop(
                 for _ in range(training_cfg.n_gradient_steps)
             ]
             critic_loss, policy_loss = agent.update(batches)
-
+            
             # Log metrics
             if global_step % training_cfg.log_every_nth == 0:
                 log.log_losses(
@@ -168,7 +167,8 @@ def _gym_training_loop(
                 n_episodes=training_cfg.n_eval_episodes,
             )
             log.log_eval_info(
-                eval_info, global_step=global_step, wandb_run=wandb_run, logger=logger
+                eval_info, global_step=global_step, wandb_run=wandb_run,
+                logger=logger
             )
 
         # Similarly, we evaluate the policy on the evaluation preferences
@@ -262,3 +262,4 @@ def _gym_training_loop(
             },
         )
     return agent, pareto_front_table, preference_table
+
