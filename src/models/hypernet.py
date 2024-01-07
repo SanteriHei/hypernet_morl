@@ -376,17 +376,16 @@ class Embedding(nn.Module):
         self._init_layers()
 
     def forward(
-            self, obs: torch.Tensor, weights: torch.Tensor
+            self, meta_variable: torch.Tensor
     ) -> torch.Tensor:
-        """Generate the hiddegymnasiumn presentation of the state weights 
+        """Generate the hidden presentation of the state weights 
         that is used to generated the weights for a linear layer.
 
         Parameters
         ----------
-        state : torch.Tensor
-            The current state of the environment.
-        weights : torch.tensor
-            The current preferences over the objectives
+        meta_variable: torch.Tensor
+            The meta-variable used to generate the weights for the target 
+            network.
 
         Returns
         -------
@@ -396,7 +395,7 @@ class Embedding(nn.Module):
         """
 
         # Condition the network on the preferences
-        x = self._hypernet(torch.cat((obs, weights), dim=-1))
+        x = self._hypernet(meta_variable)
         return x
 
     @torch.no_grad()
@@ -482,7 +481,7 @@ class HyperNet(nn.Module):
             Head(target_input_dim=target_input_dim,
                  hidden_dim=cfg.head_hidden_dim,
                  target_output_dim=cfg.layer_dims[0]
-                 )
+            )
         ])
 
         for init_std, (in_dim, out_dim) in zip(

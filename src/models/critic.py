@@ -31,8 +31,23 @@ class HyperCritic(nn.Module):
         self._embeddeding = hn.Embedding(
             embedding_layers=cfg.hypernet_cfg.embedding_layers
         )
+        
+        target_input_dim = nets.get_network_input_dim(
+                [
+                    (self._cfg.use_action, self._cfg.action_dim),
+                    (self._cfg.use_prefs, self._cfg.reward_dim),
+                    (self._cfg.use_obs, self._cfg.obs_dim)
+                ]
+        )
+        _target_input = self._get_target_input_dim()
 
-        target_input_dim = self._get_target_input_dim()
+        assert target_input_dim == _target_input,\
+                f"{target_input_dim} != {_target_input}"
+
+        if target_input_dim == 0:
+            raise ValueError(("Atleast one of 'use_obs', 'use_action' and "
+                              "'use_prefs' must be True"))
+
         self._logger.debug("Creating the headnet...")
         self._critic_head = hn.HeadNet(
             hidden_dim=cfg.hypernet_cfg.head_hidden_dim,
@@ -74,7 +89,7 @@ class HyperCritic(nn.Module):
         torch.Tensor
             The estimated Q(s, a, w) value with shape (batch_dim, reward_dim)
         """
-        z = self._embeddeding(obs, prefs)
+        z = self._embeddeding(torch.cat((obs, prefs), dim=-1))
         weights, biases, scales = self._critic_head(z)
 
         self._logger.debug("Generated params")

@@ -21,7 +21,8 @@ hypernet_cfg:
     - 0.008
   embedding_layers:
     - n_resblocks: 2
-      input_dim: "${sum:${....obs_dim}, ${....reward_dim}}"
+      input_dim: "${network.input_dim:${....hypernet_use_obs}, ${....hypernet_use_prefs}, ${....obs_dim}, ${....reward_dim}}"
+      # input_dim: "${sum:${....obs_dim}, ${....reward_dim}}"
       activation_fn: "relu"
       layer_features:
         - 256

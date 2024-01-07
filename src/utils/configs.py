@@ -36,7 +36,12 @@ def register_resolvers():
     )
 
     omegaconf.OmegaConf.register_new_resolver(
-            name="sum", resolver=lambda x, y: x + y
+        name="sum", resolver=lambda x, y: x + y
+    )
+
+    omegaconf.OmegaConf.register_new_resolver(
+        name="network.input_dim",
+        resolver=_resolve_input_dim
     )
 
 def register_configs(cs: ConfigStore):
@@ -163,6 +168,41 @@ def _resolve_action_space_high(env_id: str) -> List[float]:
     action_space_high = tmp_env.action_space.high.tolist()
     tmp_env.close()
     return action_space_high
+
+def _resolve_input_dim(
+        use_input_1, use_input_2, input_dim_1, input_dim_2
+) -> int:
+    """Resolve the input dimension of a given network
+
+    Parameters
+    ----------
+    use_input_1 : bool
+        Determines if the input 1 is used.
+    use_input_2 : bool
+        Determines if the input 2 is used.
+    input_dim_1 : int
+        The dimensionality of the input 1.
+    input_dim_2 : int
+        The dimensionality of the input 2.
+
+    Returns
+    -------
+    int
+        The input dimension for the network
+        Returns -1 if no inputs where provided.
+    """
+    out = None
+
+    if use_input_1 and use_input_2:
+        out = input_dim_1 + input_dim_2
+    elif use_input_1:
+        out = input_dim_1
+    elif use_input_2:
+        out = input_dim_2
+    else:
+        out = -1
+    return out
+
 
 def as_structured_config(cfg: omegaconf.DictConfig) -> Any:
     """Convert a omegaconf DictConfig into a structured config if the current

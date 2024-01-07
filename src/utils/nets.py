@@ -1,7 +1,7 @@
 """ Some utilities for building neural networks """
 
 import warnings
-from typing import Callable, Tuple
+from typing import Callable, Iterable, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -202,6 +202,30 @@ def get_initialization_fn(init_name: str) -> Callable:
                            "initializing to ones instead"))
             init_fn = nn.init.ones_
     return init_fn
+
+
+def get_network_input_dim(spec: Iterable[Tuple[bool, int]]) -> int:
+    """Calculate the input shape of a network dynamically.
+
+    Parameters
+    ----------
+    spec : Iterable[Tuple[bool, int]]
+        List of (use_input, input_shape) tuples.
+
+    Returns
+    -------
+    int
+        The dimensionality of the input.
+    """
+    return sum(map(lambda x: x[1], filter(lambda x: x[0], spec)))
+
+
+def get_target_input(
+        spec: Iterable[Tuple[bool, torch.Tensor]]
+) -> torch.Tensor:
+    out  = [input for use_input, input in spec if use_input]
+    return out if len(out) == 1 else torch.cat(out, dim=-1)
+    
 
 
 def get_activation_fn(fn_name: str) -> Callable:

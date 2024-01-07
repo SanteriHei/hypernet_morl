@@ -18,13 +18,13 @@ handlers:
     level: DEBUG
     stream: ext://sys.stdout
 
-  file:
-    class: logging.handlers.RotatingFileHandler
-    formatter: verbose
-    level: DEBUG
-    filename: "logs/run_log.log"
-    backupCount: 109
-    maxBytes: 10_485_760 # 10 Mb
+      # file:
+      #   class: logging.handlers.RotatingFileHandler
+      #   formatter: verbose
+      #   level: DEBUG
+      #   filename: "logs/run_log.log"
+      #   backupCount: 109
+      #   maxBytes: 10_485_760 # 10 Mb
 
 loggers:
   train:

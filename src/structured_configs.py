@@ -154,6 +154,12 @@ class PolicyConfig:
     action_space_high: List[float] = MISSING
     action_space_low: List[float] = MISSING
 
+    target_use_obs: bool = True
+    target_use_prefs: bool = True
+
+    hypernet_use_obs: bool = True
+    hypernet_use_prefs: bool = True
+
     hypernet_cfg: HyperNetConfig = MISSING
 
 

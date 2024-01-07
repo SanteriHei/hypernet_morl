@@ -20,12 +20,13 @@ class NumpyEncoder(json.JSONEncoder):
     A custom encoder that converts numpy values into native Python types before
     they are serialized.
     """
+
     def default(self, obj):
-        
         # Only catch the numeric scalar values
         if (
-                isinstance(obj, numbers.Number) and np.ndim(obj) == 0 and 
-                isinstance(obj, np.generic)
+            isinstance(obj, numbers.Number)
+            and np.ndim(obj) == 0
+            and isinstance(obj, np.generic)
         ):
             return obj.item()
         elif isinstance(obj, np.ndarray):
@@ -47,9 +48,7 @@ def dump_json(filepath: pathlib.Path | str, payload: Mapping[str, Any]):
     """
     fpath = pathlib.Path(filepath)
     if fpath.exists() and fpath.is_dir():
-        raise FileExistsError(
-            f"{filepath!r} already exists! (and is not a file)"
-        )
+        raise FileExistsError(f"{filepath!r} already exists! (and is not a file)")
     with fpath.open("w") as ofstream:
         json.dump(payload, ofstream, cls=NumpyEncoder)
 
@@ -68,40 +67,36 @@ def dump_yaml(filepath: pathlib.Path | str, payload: Mapping[str, Any]):
     yaml = YAML()
     fpath = pathlib.Path(filepath)
     if fpath.exists() and fpath.is_dir():
-        raise FileExistsError(
-            f"{filepath!r} already exists! (and is not a file)"
-        )
+        raise FileExistsError(f"{filepath!r} already exists! (and is not a file)")
     with fpath.open("w") as ofstream:
         yaml.dump(payload, ofstream)
 
+
 def get_preference_sampler(
-        sampler_type: Literal["normal", "uniform", "static"],
-        reward_dim: int,
-        device: str | torch.device | None = None, 
-        seed: int | None = None,
-        **kwargs: Mapping[str, Any]
+    sampler_type: Literal["normal", "uniform", "static"],
+    reward_dim: int,
+    device: str | torch.device | None = None,
+    seed: int | None = None,
+    **kwargs: Mapping[str, Any],
 ):
-
-
     sampler = None
     match sampler_type:
         case "normal":
-            sampler = PreferenceSampler(
-                    reward_dim, device=device, seed=seed, **kwargs
-            )
+            sampler = PreferenceSampler(reward_dim, device=device, seed=seed, **kwargs)
         case "uniform":
-            sampler = UniformSampler(
-                    reward_dim, device=device, seed=seed, **kwargs
-            )
-        case "static": 
-            sampler = StaticSampler(
-                    reward_dim, device=device, seed=seed, **kwargs
-            )
+            sampler = UniformSampler(reward_dim, device=device, seed=seed, **kwargs)
+        case "static":
+            sampler = StaticSampler(reward_dim, device=device, seed=seed, **kwargs)
         case _:
-            raise ValueError((f"Unknown sampler type {sampler_type!r}! Should "
-                              "be one of 'normal', 'uniform' or 'static'"))
+            raise ValueError(
+                (
+                    f"Unknown sampler type {sampler_type!r}! Should "
+                    "be one of 'normal', 'uniform' or 'static'"
+                )
+            )
 
     return sampler
+
 
 def set_global_rng_seed(seed: int):
     """Fix the seed for Pytorch's and Numpy's global random generators.
@@ -129,7 +124,7 @@ def deg_to_rad(angle: float) -> float:
     float
         The corresponding angle in radians.
     """
-    return (angle/180) * np.pi
+    return (angle / 180) * np.pi
 
 
 def iter_pairwise(x: Iterable) -> Iterable:
@@ -153,7 +148,7 @@ def iter_pairwise(x: Iterable) -> Iterable:
 
 
 def get_equally_spaced_weights(
-        dim: int, n_points: int, seed: int | None = None
+    dim: int, n_points: int, seed: int | None = None
 ) -> npt.NDArray:
     """Generate equally spaced points in 'dim' dimensional space.
     See https://pymoo.org/misc/reference_directions.html for more details
@@ -178,12 +173,14 @@ def get_equally_spaced_weights(
 
 
 class StaticSampler:
-
     N_POINTS: int = 20
 
     def __init__(
-            self, reward_dim: int, device: str | torch.device | None = None,
-            seed: int | None = None, **kwargs: Mapping[str, Any]
+        self,
+        reward_dim: int,
+        device: str | torch.device | None = None,
+        seed: int | None = None,
+        **kwargs: Mapping[str, Any],
     ):
         """A static sampling scheme for the preferences, were the preferences
         are sampled from a predetermined set of points in order.
@@ -204,25 +201,23 @@ class StaticSampler:
 
         self._ptr = 0
         ref_preferences = pymoo.util.ref_dirs.get_reference_directions(
-                name="energy", n_dim=reward_dim,
-                n_points=self._n_points,
-                seed=seed
+            name="energy", n_dim=reward_dim, n_points=self._n_points, seed=seed
         )
-        self._ref_preferences = torch.from_numpy(
-                ref_preferences
-        ).to(device=self._device, dtype=torch.float32)
+        self._ref_preferences = torch.from_numpy(ref_preferences).to(
+            device=self._device, dtype=torch.float32
+        )
 
     @property
     def reward_dim(self) -> int:
-        """ Return the used reward dimensionality """
+        """Return the used reward dimensionality"""
         return self._reward_dim
 
     @property
     def device(self) -> torch.device:
-        """ Return the currently used device """
+        """Return the currently used device"""
         return self._device
 
-    def sample(self, n_samples: int = 1) ->  torch.Tensor:
+    def sample(self, n_samples: int = 1) -> torch.Tensor:
         """Sample preferences from the defined preference space.
 
         Parameters
@@ -236,27 +231,30 @@ class StaticSampler:
             The sampled preferences.
         """
 
-        assert n_samples <= self._n_points,\
-                ("Cannot sample more than the amount of reference points "
-                 f"({self._n_points}) at a time!")
+        assert n_samples <= self._n_points, (
+            "Cannot sample more than the amount of reference points "
+            f"({self._n_points}) at a time!"
+        )
 
         out = torch.full(
-                (n_samples, self._reward_dim), torch.nan,
-                dtype=torch.float32, device=self._device
+            (n_samples, self._reward_dim),
+            torch.nan,
+            dtype=torch.float32,
+            device=self._device,
         )
         new_ptr = min(self._n_points, self._ptr + n_samples)
         n_points = new_ptr - self._ptr
-        
+
         # If we cannot sample any points from the end of the buffer, start from
         # the beginning
         if n_points == 0:
             out[:n_samples, :] = self._ref_preferences[0:n_samples, :]
             self._ptr = n_samples
         elif n_points < n_samples:
-            out[:n_points, :] = self._ref_preferences[self._ptr:new_ptr, :]
+            out[:n_points, :] = self._ref_preferences[self._ptr : new_ptr, :]
             self._ptr = new_ptr
         else:
-            out[:, :] = self._ref_preferences[self._ptr:new_ptr, :]
+            out[:, :] = self._ref_preferences[self._ptr : new_ptr, :]
             self._ptr = new_ptr
         # self._ptr = new_ptr if new_ptr < self._n_points else 0
         assert not out.isnan().any().item(), "Output contains NaN's!"
@@ -264,10 +262,12 @@ class StaticSampler:
 
 
 class UniformSampler:
-
     def __init__(
-            self, reward_dim: int, device: str | torch.device | None = None,
-            seed: int | None = None, **kwargs: Mapping[str, Any]
+        self,
+        reward_dim: int,
+        device: str | torch.device | None = None,
+        seed: int | None = None,
+        **kwargs: Mapping[str, Any],
     ):
         """Create a random sampler that chooses samples with uniform random
         distribution from the preferece space.
@@ -283,20 +283,20 @@ class UniformSampler:
         """
         self._reward_dim = reward_dim
         self._device = torch.device("cpu" if device is None else device)
-        
+
         # Use a local generator to manage the random state instead of the
         # global PRNG
         self._generator = torch.Generator(device=self._device)
         self._generator.manual_seed(seed)
-    
+
     @property
     def reward_dim(self) -> int:
-        """ Return the used reward dimension """
+        """Return the used reward dimension"""
         return self._reward_dim
-    
+
     @property
     def device(self) -> torch.device:
-        """ Return currently used device """
+        """Return currently used device"""
         return self._device
 
     def sample(self, n_samples: int = 1) -> torch.Tensor:
@@ -314,21 +314,24 @@ class UniformSampler:
             The sampled preferences.
         """
         return torch.rand(
-                size=(n_samples, self._reward_dim),
-                generator=self._generator,
-                device=self._device, dtype=torch.float32
+            size=(n_samples, self._reward_dim),
+            generator=self._generator,
+            device=self._device,
+            dtype=torch.float32,
         )
 
-class PreferenceSampler:
 
+class PreferenceSampler:
     def __init__(
-            self, reward_dim: int, angle_rad: float,
-            w: npt.NDArray | torch.Tensor | None = None,
-            device: str | torch.device | None = None,
-            seed: int | None = None
+        self,
+        reward_dim: int,
+        angle_rad: float,
+        w: npt.NDArray | torch.Tensor | None = None,
+        device: str | torch.device | None = None,
+        seed: int | None = None,
     ):
-        """Create a simple preference sampler that can be used to 
-        sample normalized preferences from a (possibly) restricted part of the 
+        """Create a simple preference sampler that can be used to
+        sample normalized preferences from a (possibly) restricted part of the
         space.
 
         Parameters
@@ -340,7 +343,7 @@ class PreferenceSampler:
         w : [TODO:parameter]
             [TODO:description]
         device: str | torch.device | None, optional
-            The device where the tensors will be stored. If None, "cpu" is used 
+            The device where the tensors will be stored. If None, "cpu" is used
             as the default. Default None
         seed: int | None, optional
             The seed used to initialize the PRNG. Default None.
@@ -349,7 +352,7 @@ class PreferenceSampler:
         self._angle = angle_rad
 
         self._device = torch.device("cpu" if device is None else device)
-            
+
         # Use a generator to manage the random state instead of the global PRNG
         self._generator = torch.Generator(device=self._device)
         self._generator.manual_seed(seed)
@@ -362,12 +365,12 @@ class PreferenceSampler:
 
     @property
     def reward_dim(self) -> int:
-        """ Return the used reward dimension """
+        """Return the used reward dimension"""
         return self._reward_dim
 
     @property
     def device(self) -> torch.device:
-        """ Return the currently used device """
+        """Return the currently used device"""
         return self._device
 
     def sample(self, n_samples: int) -> torch.Tensor:
@@ -384,14 +387,12 @@ class PreferenceSampler:
             The sampled weights.
         """
         samples = torch.normal(
-                torch.zeros(n_samples, self._reward_dim, device=self._device),
-                generator=self._generator
+            torch.zeros(n_samples, self._reward_dim, device=self._device),
+            generator=self._generator,
         )
 
         # Remove fluctutation on dir w.
-        samples = (
-            samples - (samples @ self._w).view(-1, 1) * self._w.view(1, -1)
-        )
+        samples = samples - (samples @ self._w).view(-1, 1) * self._w.view(1, -1)
         samples = samples / torch.norm(samples, dim=1, keepdim=True)
 
         # Calculate the angle of the sampled vector, and shift it
@@ -414,14 +415,15 @@ class ReplaySample:
         (n_samples, action_dim)
     rewards : npt.NDArray | torch.Tensor A set of rewards. Has shape
         (n_samples, reward_dim)
-    prefs : npt.NDArray | torch.Tensor A set of preferences over the objectives. 
+    prefs : npt.NDArray | torch.Tensor A set of preferences over the objectives.
         Has shape (n_samples, reward_dim)
     next_obs : npt.NDArray | torch.Tensor A set of next observations after
         taking the specified actions. Has shape (n_samples, obs_dim)
-    dones : npt.NDArray | torch.Tensor A set of states of the episodes, where 
-        true denotes that the episode finished with that action. Has shape 
+    dones : npt.NDArray | torch.Tensor A set of states of the episodes, where
+        true denotes that the episode finished with that action. Has shape
         (n_samples, )
     """
+
     obs: npt.NDArray | torch.Tensor
     actions: npt.NDArray | torch.Tensor
     rewards: npt.NDArray | torch.Tensor
@@ -430,7 +432,7 @@ class ReplaySample:
     dones: npt.NDArray | torch.Tensor
 
     def as_tensors(self, device: torch.device) -> ReplaySample:
-        """Convert the current sample from the buffer to torch tensors and 
+        """Convert the current sample from the buffer to torch tensors and
         move them to the desired device.
 
         Parameters
@@ -475,21 +477,26 @@ class ReplaySample:
             dones = self.dones.detach().clone().to(device)
 
         return ReplaySample(
-            obs=obs, actions=actions, rewards=rewards,
-            prefs=prefs, next_obs=next_obs, dones=dones
+            obs=obs,
+            actions=actions,
+            rewards=rewards,
+            prefs=prefs,
+            next_obs=next_obs,
+            dones=dones,
         )
 
 
 class ReplayBuffer:
-
     def __init__(
-            self, capacity: int, *,
-            obs_dim: int,
-            action_dim: int,
-            reward_dim: int,
-            use_torch: bool = True,
-            device: str | torch.device | None = None,
-            seed: int | None = None
+        self,
+        capacity: int,
+        *,
+        obs_dim: int,
+        action_dim: int,
+        reward_dim: int,
+        use_torch: bool = True,
+        device: str | torch.device | None = None,
+        seed: int | None = None,
     ):
         """Create a FIFO style replay buffer.
 
@@ -509,28 +516,24 @@ class ReplayBuffer:
         """
         if use_torch:
             self._device = torch.device("cpu" if device is None else device)
-            self._obs = torch.empty(
-                (capacity, obs_dim), dtype=torch.float32
-            ).to(device)
-            self._actions = torch.empty(
-                (capacity, action_dim), dtype=torch.float32
-            ).to(device)
-            self._rewards = torch.empty(
-                (capacity, reward_dim), dtype=torch.float32
-            ).to(device)
+            self._obs = torch.empty((capacity, obs_dim), dtype=torch.float32).to(device)
+            self._actions = torch.empty((capacity, action_dim), dtype=torch.float32).to(
+                device
+            )
+            self._rewards = torch.empty((capacity, reward_dim), dtype=torch.float32).to(
+                device
+            )
 
-            self._prefs = torch.empty(
-                (capacity, reward_dim), dtype=torch.float32
-            ).to(device)
-            self._next_obs = torch.empty(
-                (capacity, obs_dim), dtype=torch.float32
-            ).to(device)
+            self._prefs = torch.empty((capacity, reward_dim), dtype=torch.float32).to(
+                device
+            )
+            self._next_obs = torch.empty((capacity, obs_dim), dtype=torch.float32).to(
+                device
+            )
 
             # Store as float's to ensure that one can use them in basic
             # arithmetic operations
-            self._dones = torch.empty(
-                (capacity,), dtype=torch.float32
-            ).to(device)
+            self._dones = torch.empty((capacity,), dtype=torch.float32).to(device)
 
         else:
             # defined only for compliance
@@ -550,18 +553,19 @@ class ReplayBuffer:
     @property
     def device(self) -> torch.device:
         if self._device is None:
-            raise AttributeError(("Running buffer in Numpy mode! No concept "
-                                  "of device exists"))
+            raise AttributeError(
+                ("Running buffer in Numpy mode! No concept " "of device exists")
+            )
         return self._device
 
     def append(
-            self,
-            obs: torch.Tensor,
-            action: torch.Tensor,
-            rewards: torch.Tensor,
-            prefs: torch.Tensor,
-            next_obs: torch.Tensor,
-            done: bool
+        self,
+        obs: torch.Tensor,
+        action: torch.Tensor,
+        rewards: torch.Tensor,
+        prefs: torch.Tensor,
+        next_obs: torch.Tensor,
+        done: bool,
     ):
         """Add a new sample to the buffer. If the buffer is full, the oldest
         sample will be overwritten.
@@ -593,22 +597,20 @@ class ReplayBuffer:
         if self._len < self._capacity:
             self._len += 1
 
-    def sample(
-            self, n_samples: int
-    ) -> ReplaySample:
+    def sample(self, n_samples: int) -> ReplaySample:
         """Sample the buffer for a set of observation, action, reward,
         preference, next observation done tuples.
 
         Parameters
         ----------
         n_samples : int
-            The amount of samples to select. Should be at most the lenght of 
+            The amount of samples to select. Should be at most the lenght of
             the buffer
 
         Returns
         -------
         ReplaySample
-            A sample from the buffer, that contains a set of 
+            A sample from the buffer, that contains a set of
             (obs, action, reward, prefs, next_obs, done) tuples, where
             the shapes will be (
                     (n_samples, obs_dim), (n_samples, action_dim),
@@ -618,9 +620,13 @@ class ReplayBuffer:
         """
 
         if n_samples > self._len:
-            raise ValueError((f"'n_samples' should be less or equal to the "
-                              f"length of the buffer. Got {n_samples} "
-                              f"(len(buffer) = {self._len})"))
+            raise ValueError(
+                (
+                    f"'n_samples' should be less or equal to the "
+                    f"length of the buffer. Got {n_samples} "
+                    f"(len(buffer) = {self._len})"
+                )
+            )
         indexes = self._rng.choice(self._len, size=n_samples, replace=False)
 
         obs = self._obs[indexes, :]
@@ -631,12 +637,16 @@ class ReplayBuffer:
         dones = self._dones[indexes]
 
         return ReplaySample(
-            obs=obs, actions=actions, rewards=rewards, prefs=prefs,
-            next_obs=next_obs, dones=dones
+            obs=obs,
+            actions=actions,
+            rewards=rewards,
+            prefs=prefs,
+            next_obs=next_obs,
+            dones=dones,
         )
 
     def __len__(self) -> int:
-        """Return the current lenght of the buffer. If the buffer is full 
+        """Return the current lenght of the buffer. If the buffer is full
         (i.e. one is overwriting previous entries), the length == capacity
 
 

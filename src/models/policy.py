@@ -1,28 +1,28 @@
 """ Define the policy network"""
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Tuple, Literal
 
 import numpy as np
 import torch
 from torch import nn
 
 from .. import structured_configs
-from ..utils import configs, log, nets
 from . import hypernet as hn
+from ..utils import configs, log, nets
 
 
 class GaussianPolicy(nn.Module):
-
     LOG_SIG_MAX: int = 2
     LOG_SIG_MIN: int = -20
     LOG_PROB_RANGE: float = 1e3
     EPS: float = 1e-6
 
     def __init__(
-            self, cfg: structured_configs.PolicyConfig,
+        self,
+        cfg: structured_configs.PolicyConfig,
     ):
-        """Create a Gaussian policy. Utilizes reparmeterization trick 
+        """Create a Gaussian policy. Utilizes reparmeterization trick
         to predict the mean and std for the Gaussian distribution.
 
         Parameters
@@ -36,32 +36,25 @@ class GaussianPolicy(nn.Module):
 
         # Do not apply activation function after the last layer
         n_layers = len(cfg.layer_features)
-        apply_activation = tuple(
-            i != n_layers - 1 for i in range(n_layers)
-        )
+        apply_activation = tuple(i != n_layers - 1 for i in range(n_layers))
 
         self._logger.debug("Creating a Latent policy...")
         self._latent_pi = nets.create_mlp(
             input_dim=cfg.reward_dim + cfg.obs_dim,
             layer_features=cfg.layer_features,
             activation_fn=cfg.activation_fn,
-            apply_activation=apply_activation
+            apply_activation=apply_activation,
         )
 
         self._logger.debug(
-            "Mean and log-std layers | "
-            f"{cfg.layer_features[-1]} -> {cfg.output_dim}"
+            "Mean and log-std layers | " f"{cfg.layer_features[-1]} -> {cfg.output_dim}"
         )
         self._mean_layer = nn.Linear(cfg.layer_features[-1], cfg.output_dim)
         self._log_std_layer = nn.Linear(cfg.layer_features[-1], cfg.output_dim)
 
         # for scaling the actions
-        action_space_low = torch.as_tensor(
-            cfg.action_space_low, dtype=torch.float32
-        )
-        action_space_high = torch.as_tensor(
-            cfg.action_space_high, dtype=torch.float32
-        )
+        action_space_low = torch.as_tensor(cfg.action_space_low, dtype=torch.float32)
+        action_space_high = torch.as_tensor(cfg.action_space_high, dtype=torch.float32)
         self.register_buffer(
             "_action_scale", (action_space_high - action_space_low) / 2.0
         )
@@ -81,10 +74,8 @@ class GaussianPolicy(nn.Module):
         return self._cfg
 
     @torch.no_grad
-    def eval_action(
-            self, obs: torch.Tensor, prefs: torch.Tensor
-    ) -> torch.Tensor:
-        """Take an "evaluation" action using the current policy. NOTE: no 
+    def eval_action(self, obs: torch.Tensor, prefs: torch.Tensor) -> torch.Tensor:
+        """Take an "evaluation" action using the current policy. NOTE: no
         gradients are tracked when taking evaluation actions.
 
         Parameters
@@ -103,7 +94,7 @@ class GaussianPolicy(nn.Module):
         return torch.tanh(mean) * self._action_scale + self._action_bias
 
     def forward(
-            self, obs: torch.Tensor, prefs: torch.Tensor
+        self, obs: torch.Tensor, prefs: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """The forward pass of the policy network
 
@@ -117,7 +108,7 @@ class GaussianPolicy(nn.Module):
         Returns
         -------
         Tuple[torch.Tensor, torch.Tensor]
-            The mean and logarithm of the standard deviation for the 
+            The mean and logarithm of the standard deviation for the
             Gaussian distribution
         """
         h = self._latent_pi(torch.cat((obs, prefs), dim=-1))
@@ -126,15 +117,11 @@ class GaussianPolicy(nn.Module):
         log_std = self._log_std_layer(h)
         # Apply clamping as in the original paper
         log_std = torch.clamp(
-            log_std,
-            min=GaussianPolicy.LOG_SIG_MIN,
-            max=GaussianPolicy.LOG_SIG_MAX
+            log_std, min=GaussianPolicy.LOG_SIG_MIN, max=GaussianPolicy.LOG_SIG_MAX
         )
         return mean, log_std
 
-    def take_action(
-            self, obs: torch.Tensor, prefs: torch.Tensor
-    ) -> torch.Tensor:
+    def take_action(self, obs: torch.Tensor, prefs: torch.Tensor) -> torch.Tensor:
         """Takes an action using the current policy.
 
         Parameters
@@ -153,7 +140,7 @@ class GaussianPolicy(nn.Module):
         return torch.tanh(mean) * self._action_scale + self._action_bias
 
     def sample_action(
-            self, obs: torch.Tensor, prefs: torch.Tensor
+        self, obs: torch.Tensor, prefs: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Samples an action from the current policy using the
         reparameterization trick. NOTE: this action is not deterministic.
@@ -168,7 +155,7 @@ class GaussianPolicy(nn.Module):
         Returns
         -------
         Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
-            Returns the taken action, the mean and the (log) std for the 
+            Returns the taken action, the mean and the (log) std for the
             used Gaussian distribution.
         """
         mean, log_std = self.forward(obs, prefs)
@@ -222,29 +209,41 @@ class HyperPolicy(nn.Module):
         self._embedding = hn.Embedding(
             embedding_layers=cfg.hypernet_cfg.embedding_layers,
         )
-        self._policy_head = hn.HeadNet(
-                hidden_dim=cfg.hypernet_cfg.head_hidden_dim,
-                layer_features=cfg.layer_features,
-                target_output_dim=cfg.output_dim,
-                target_input_dim=cfg.obs_dim + cfg.reward_dim,
-                n_outputs=2,
-                init_method=cfg.hypernet_cfg.head_init_method,
-                init_stds=cfg.hypernet_cfg.head_init_stds,
 
+        target_input_dim = nets.get_network_input_dim(
+                [
+                    (self._cfg.target_use_obs, self._cfg.obs_dim),
+                    (self._cfg.target_use_prefs, self._cfg.reward_dim)
+                ]
+        ) 
+        self._policy_head = hn.HeadNet(
+            hidden_dim=cfg.hypernet_cfg.head_hidden_dim,
+            layer_features=cfg.layer_features,
+            target_output_dim=cfg.output_dim,
+            target_input_dim=target_input_dim,
+            n_outputs=2,
+            init_method=cfg.hypernet_cfg.head_init_method,
+            init_stds=cfg.hypernet_cfg.head_init_stds,
         )
 
         # Create the mask for the activation functions
         self._logger.debug(f"Using layers {cfg.layer_features}")
-        self._activation_mask = np.arange(len(cfg.layer_features)) < len(cfg.layer_features) - 1
-        self._logger.debug((f"Network architecture {cfg.layer_features} | "
-                            f"activation mask {self._activation_mask}"))
+        self._activation_mask = (
+            np.arange(len(cfg.layer_features)) < len(cfg.layer_features) - 1
+        )
+        self._logger.debug(
+            (
+                f"Network architecture {cfg.layer_features} | "
+                f"activation mask {self._activation_mask}"
+            )
+        )
 
         # for scaling the actions
         action_space_low = torch.as_tensor(
-            cfg.action_space_low, dtype=torch.float32
+                cfg.action_space_low, dtype=torch.float32
         )
         action_space_high = torch.as_tensor(
-            cfg.action_space_high, dtype=torch.float32
+                cfg.action_space_high, dtype=torch.float32
         )
 
         self.register_buffer(
@@ -264,11 +263,9 @@ class HyperPolicy(nn.Module):
             The used configuration.
         """
         return self._cfg
-    
+
     @torch.no_grad
-    def eval_action(
-            self, obs: torch.Tensor, prefs: torch.Tensor
-    ) -> torch.Tensor:
+    def eval_action(self, obs: torch.Tensor, prefs: torch.Tensor) -> torch.Tensor:
         """Take an "evaluation" action with the current policy. NOTE: No
         gradient information is tracked when these actions are taken.
 
@@ -288,7 +285,7 @@ class HyperPolicy(nn.Module):
         return torch.tanh(mean) * self._action_scale + self._action_bias
 
     def forward(
-            self, obs: torch.Tensor, prefs: torch.Tensor
+        self, obs: torch.Tensor, prefs: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Apply the forward pass to the policy.
 
@@ -302,18 +299,17 @@ class HyperPolicy(nn.Module):
         Returns
         -------
         Tuple[torch.Tensor, torch.Tensor]
-            Returns the mean and log standard deviation for a Gaussian 
+            Returns the mean and log standard deviation for a Gaussian
             distribution
         """
-        z = self._embedding(obs, prefs)
+        embedding_input = self._get_network_input("hyper", obs, prefs)
+        z = self._embedding(embedding_input)
         weights, biases, scales = self._policy_head(z)
-        
 
-        policy_input = torch.cat((obs, prefs), dim=-1)
+        policy_input = self._get_network_input("target", obs, prefs)
         # If the data does not contain an batch dimension, add it into the input
         if policy_input.ndim == 1:
             policy_input.unsqueeze_(-2)
-
 
         h = nets.target_network(
             policy_input,
@@ -321,29 +317,35 @@ class HyperPolicy(nn.Module):
             biases=biases[:-2],
             scales=scales[:-2],
             apply_activation=self._activation_mask,
-            activation_fn=self._cfg.activation_fn
+            activation_fn=self._cfg.activation_fn,
         )
-        
+
         mean = nets.target_network(
-            h, weights=[weights[-1]], biases=[biases[-1]], scales=[scales[-1]],
-            apply_activation=[False]
+            h,
+            weights=[weights[-1]],
+            biases=[biases[-1]],
+            scales=[scales[-1]],
+            apply_activation=[False],
         )
         log_std = nets.target_network(
-            h, weights=[weights[-2]], biases=[biases[-2]], scales=[scales[-2]],
-            apply_activation=[False]
+            h,
+            weights=[weights[-2]],
+            biases=[biases[-2]],
+            scales=[scales[-2]],
+            apply_activation=[False],
         )
         log_std = torch.clamp(
             log_std, min=HyperPolicy.LOG_SIG_MIN, max=HyperPolicy.LOG_SIG_MAX
         )
-        
+
         # Remove the batch and singleton dimension if they are not needed
         mean.squeeze_([0, 2])
         log_std.squeeze_([0, 2])
-        
+
         return mean, log_std
 
     def sample_action(
-            self, obs: torch.Tensor, prefs: torch.Tensor
+        self, obs: torch.Tensor, prefs: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample an action using the current policy.
 
@@ -362,7 +364,7 @@ class HyperPolicy(nn.Module):
         """
         mean, log_std = self.forward(obs, prefs)
         std = log_std.exp()
-        
+
         # self._logger.debug(f"Taking actions from N({mean.max()}, {std.max()})")
         normal_distr = torch.distributions.Normal(mean, std)
         x_t = normal_distr.rsample()  # Reparametrization trick
@@ -376,9 +378,7 @@ class HyperPolicy(nn.Module):
         # Enforce the action bounds
         # Compute the log-prob as the normal distribution sample which
         # is processed by tanh
-        log_prob -= torch.log(
-            self._action_scale * (1 - y_t.pow(2)) * HyperPolicy.EPS
-        )
+        log_prob -= torch.log(self._action_scale * (1 - y_t.pow(2)) * HyperPolicy.EPS)
         log_prob = log_prob.sum(axis=1, keepdims=True)
         log_prob = log_prob.clamp(
             -HyperPolicy.LOG_PROB_RANGE, HyperPolicy.LOG_PROB_RANGE
@@ -387,10 +387,8 @@ class HyperPolicy(nn.Module):
         mean = torch.tanh(mean) * self._action_scale + self._action_bias
         return action, log_prob, mean
 
-    def take_action(
-            self, obs: torch.Tensor, prefs: torch.Tensor
-    ) -> torch.Tensor:
-        """Take an (deterministic) action using the current policy 
+    def take_action(self, obs: torch.Tensor, prefs: torch.Tensor) -> torch.Tensor:
+        """Take an (deterministic) action using the current policy
 
         Parameters
         ----------
@@ -407,8 +405,35 @@ class HyperPolicy(nn.Module):
         mean, _ = self.forward(obs, prefs)
         return torch.tanh(mean) * self._action_scale + self._action_bias
 
-
-    def _get_target_input(
-            self, obs: torch.Tensor, prefs: torch.Tensor
+    def _get_network_input(
+        self, network: Literal["hyper", "target"], 
+        obs: torch.Tensor, prefs: torch.Tensor
     ) -> torch.Tensor:
-        pass
+        match network:
+            case "hyper":
+                use_obs = self._cfg.hypernet_use_obs
+                use_prefs = self._cfg.hypernet_use_prefs
+            case "target":
+                use_obs = self._cfg.target_use_obs
+                use_prefs = self._cfg.target_use_prefs
+            case _:
+                raise ValueError((f"Unknown network {network!r}! network must "
+                                  "be one of 'hyper', 'target'"))
+
+        if not use_obs and not use_prefs:
+            raise ValueError(
+                ("Atleast one of 'use_obs' and 'use_prefs' must be True")
+            )
+
+        out = None
+
+        if use_obs and use_prefs:
+            out = torch.cat((obs, prefs), dim=-1)
+        elif use_obs:
+            out = obs
+        elif use_prefs:
+            out = prefs
+        else:
+            assert False, ("Unknown combination of prefs and obs "
+                           f"({use_prefs}, {use_obs})")
+        return out
