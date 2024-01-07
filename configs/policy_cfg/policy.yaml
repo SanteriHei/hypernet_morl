@@ -8,11 +8,15 @@ reward_dim: "${env.reward_dim:${..training_cfg.env_id}}"
 output_dim: "${env.action_dim:${..training_cfg.env_id}}"
 action_space_low: "${env.action_space_low:${..training_cfg.env_id}}"
 action_space_high: "${env.action_space_high:${..training_cfg.env_id}}"
+target_use_obs: true
+target_use_prefs: true
+
 layer_features: 
   - 256
   - 256
   - 256
 
+# Hypernet config used only if policy_type = "hyper-gaussian"
 hypernet_cfg:
   head_hidden_dim: 1024
   head_init_method: "uniform"
