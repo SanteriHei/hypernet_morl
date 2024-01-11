@@ -313,12 +313,14 @@ class UniformSampler:
         torch.Tensor
             The sampled preferences.
         """
-        return torch.rand(
+        prefs = torch.rand(
             size=(n_samples, self._reward_dim),
             generator=self._generator,
             device=self._device,
             dtype=torch.float32,
         )
+        prefs /= prefs.sum()
+        return prefs
 
 
 class PreferenceSampler:
