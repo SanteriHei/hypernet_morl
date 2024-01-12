@@ -313,6 +313,21 @@ class UniformSampler:
         torch.Tensor
             The sampled preferences.
         """
+
+        # If one is using only two rewards, just sample the single weight 
+        # from a uniform distribution, and calculate the second preference 
+        # based on that.
+        if self._reward_dim == 2:
+            pref_0 = torch.rand(
+                    size=(n_samples, 1),
+                    device=self._device,
+                    dtype=torch.float32
+            )
+            pref_1 = 1 - pref_0
+            return torch.concat((pref_0, pref_1), axis=-1)
+        
+        # Otherwise, just sample the preferences from the uniform distribution
+        # and normalize them.
         prefs = torch.rand(
             size=(n_samples, self._reward_dim),
             generator=self._generator,

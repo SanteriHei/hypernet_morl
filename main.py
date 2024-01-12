@@ -26,7 +26,9 @@ def main(cfg: omegaconf.DictConfig):
     set_global_rng_seed(cfg.seed)
 
     agent = msa_hyper.MSAHyper(
-        cfg.msa_hyper_cfg, policy_cfg=cfg.policy_cfg, critic_cfg=cfg.critic_cfg
+        cfg.msa_hyper_cfg,
+        policy_cfg=cfg.policy_cfg,
+        critic_cfg=cfg.critic_cfg
     )
     training_loop.train_agent(cfg, agent)
 

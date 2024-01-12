@@ -201,6 +201,12 @@ def _gym_training_loop(
             current_stds = np.asarray(current_stds)
             current_front = current_front[non_dominated_inds].tolist()
             current_stds = current_stds[non_dominated_inds].tolist()
+            log.warn_if(
+                    logger, len(current_front) == 0,
+                    (f"The pareto front is empty at episode {num_episodes} "
+                    f"(step {global_step})")
+            )
+
 
             # Store the current pareto front
             for avg_disc_return, std_disc_return in zip(current_front, current_stds):
