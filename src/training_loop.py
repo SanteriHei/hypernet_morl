@@ -118,6 +118,9 @@ def _gym_training_loop(
         prefs = weight_sampler.sample(n_samples=1)
         prefs = prefs.squeeze()
 
+        assert ((prefs.sum(axis=-1) - 1).abs() < 1e-8).all(),\
+                f"Not all prefs sum to one! ({prefs.sum(axis=-1).min()}, {prefs.sum(axis=-1).max()}"
+
         if global_step < training_cfg.n_random_steps:
             action = torch.tensor(
                 env.action_space.sample(),

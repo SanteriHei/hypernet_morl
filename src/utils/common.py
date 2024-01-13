@@ -324,7 +324,11 @@ class UniformSampler:
                     dtype=torch.float32
             )
             pref_1 = 1 - pref_0
-            return torch.concat((pref_0, pref_1), axis=-1)
+            prefs = torch.concat((pref_0, pref_1), axis=-1)
+            assert ((prefs.sum() - 1).abs() < 1e-7).all(),\
+                    f"Not all prefs sum to one: ({prefs.sum(axis=-1).min()}, {prefs.sum(axis=-1).max()})"
+            return prefs
+            # return torch.concat((pref_0, pref_1), axis=-1)
         
         # Otherwise, just sample the preferences from the uniform distribution
         # and normalize them.
