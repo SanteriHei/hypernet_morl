@@ -1,8 +1,8 @@
 """ Defines all the structured configs for the models """
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Tuple
 from enum import Enum
+from typing import Any, Dict, List, Tuple
 
 from omegaconf import MISSING
 
@@ -68,6 +68,38 @@ class ResblockConfig:
 
 
 @dataclass
+class MlpConfig:
+    """ Configuration for creating an MLP.
+
+    Attributes
+    ----------
+    input_dim: int The dimensionality of the network inputs.
+    layer_features: Tuple[int, ...] Define the amount of neurons in each 
+        consecutive layer.
+    activation_fn: str The activation function to use between the layers.
+    apply_activation: Tuple[bool, ...] Controls if the activation function 
+        is added after a linear layer.
+    dropout_rates: Tuple[float | None, ...] The dropout rate to add after
+        the layer. If None, no dropout is used.
+    head_hidden_dim: int The hidden dimension for the head network. Should match
+        the ouput of the embedding layer.
+    head_init_method {"uniform", "normal"} The initialization method used for
+        the head layers. Default uniform.
+    head_init_stds: Tuple[float, ...] | float. The standard deviations used for
+        initializing the network.
+    """
+    input_dim: int = MISSING
+    layer_features: Tuple[int, ...] = MISSING
+    activation_fn: str  = MISSING
+    apply_activation: Tuple[bool, ...] = MISSING
+    dropout_rates: Tuple[float | None, ...] = MISSING
+    
+    # Configuration for the heads
+    head_hidden_dim: int = MISSING
+    head_init_method: str = "uniform"
+    head_init_stds: Tuple[float, ...] = MISSING
+
+@dataclass
 class HyperNetConfig:
     """
     Configuration for a Hyper network. Contains the relevant information
@@ -125,11 +157,10 @@ class CriticConfig:
     obs_dim: int = MISSING
     action_dim: int = MISSING
     activation_fn: str = "relu"
-    use_action: bool = True
-    use_prefs: bool = False
-    use_obs: bool = False
+    target_net_inputs: Tuple[str, ...] = ("action", )
 
-    hypernet_cfg: HyperNetConfig = MISSING
+    hypernet_type: str = MISSING
+    hypernet_cfg: Any = MISSING
 
 
 @dataclass
@@ -318,9 +349,7 @@ class Config:
             # Critic
             "critic/layer_dims": self.critic_cfg.layer_dims,
             "critic/activation_fn": self.critic_cfg.activation_fn,
-            "critic/use_action_input": self.critic_cfg.use_action,
-            "critic/use_obs_input": self.critic_cfg.use_obs,
-            "critic/use_prefs_input": self.critic_cfg.use_prefs,
+            "critic/target_net_inputs": self.critic_cfg.target_net_inputs,
             "critic/hypernet_cfg": asdict(self.critic_cfg.hypernet_cfg),
             # Common stuff
             "seed": self.seed,

@@ -1,0 +1,39 @@
+# Define the configuration for the basenet
+head_hidden_dim: 1024
+
+# Use the initialization from the recomposing rl paper
+head_init_method: "uniform"
+head_init_stds:
+  - 0.05
+  - 0.008
+
+# Define the embedding of the hypernet.
+embedding_layers:
+  - n_resblocks: 2
+    # This will be automatically resolved with reward_dim + obs_dim
+    input_dim: "${sum:${....obs_dim}, ${....reward_dim}}"
+    activation_fn: "relu"
+    dropout_rates: 
+      - 0.3
+      - 0.3
+    layer_features:
+      - 256
+      - 256
+  - n_resblocks: 2
+    input_dim: 256
+    activation_fn: "relu"
+    dropout_rates: 
+      - 0.2
+      - 0.2
+    layer_features:
+      - 512
+      - 512
+  - n_resblocks: 2
+    input_dim: 512
+    activation_fn: "relu"
+    dropout_rates: 
+      - 0.1
+      - 0.1
+    layer_features: 
+      - 1024
+      - 1024

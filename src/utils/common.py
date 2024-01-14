@@ -79,6 +79,25 @@ def get_preference_sampler(
     seed: int | None = None,
     **kwargs: Mapping[str, Any],
 ):
+    """Create and return a preference sampler based on the expected sampling
+    type
+
+    Parameters
+    ----------
+    sampler_type : Literal["normal", "uniform", "static"]
+        The type of sampler. Can be one of "normal", "uniform" and "static".
+    reward_dim : int
+        The dimensionality of the reward.
+    device : str | torch.device | None
+        The device in which the results should be returned in.
+    seed : int | None
+        The seed used for the generator that is used for the random sampling.
+
+    Returns
+    -------
+    Any
+        The constructed preference sampler.
+    """
     sampler = None
     match sampler_type:
         case "normal":
@@ -97,6 +116,10 @@ def get_preference_sampler(
 
     return sampler
 
+
+def set_thread_count(device: str | torch.device, n_threads: int):
+    if (isinstance(device, torch.device) and device.type == "cpu") or device == "cpu":
+        torch.set_num_threads(n_threads)
 
 def set_global_rng_seed(seed: int):
     """Fix the seed for Pytorch's and Numpy's global random generators.

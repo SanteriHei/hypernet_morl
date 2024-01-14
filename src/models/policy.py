@@ -9,7 +9,7 @@ from torch import nn
 
 from .. import structured_configs
 from . import hypernet as hn
-from ..utils import configs, log, nets
+from ..utils import log, nets
 
 
 class GaussianPolicy(nn.Module):
@@ -32,7 +32,7 @@ class GaussianPolicy(nn.Module):
         """
         super().__init__()
         self._logger = log.get_logger("models.gaussian_policy")
-        self._cfg = configs.as_structured_config(cfg)
+        self._cfg = cfg
 
         # Do not apply activation function after the last layer
         n_layers = len(cfg.layer_features)

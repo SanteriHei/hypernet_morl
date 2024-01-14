@@ -9,6 +9,7 @@ import omegaconf
 from hydra.core.config_store import ConfigStore
 
 from .. import structured_configs
+from ..structured_configs import ResblockConfig, HyperNetConfig, MlpConfig
 
 
 def register_resolvers():
@@ -219,7 +220,26 @@ def as_structured_config(cfg: omegaconf.DictConfig) -> Any:
         The converted config.
     """
     if isinstance(cfg, omegaconf.DictConfig):
-        return omegaconf.OmegaConf.to_object(cfg)
+        cfg = omegaconf.OmegaConf.to_object(cfg)
+    
+    if isinstance(cfg.critic_cfg.hypernet_cfg, dict):
+        hypernet_cfg = cfg.critic_cfg.hypernet_cfg
+        match cfg.critic_cfg.hypernet_type:
+            case "resnet":
+                embedding_layers = [
+                        ResblockConfig(**layer_params) for layer_params in 
+                        hypernet_cfg["embedding_layers"]
+                ]
+
+                cfg.critic_cfg.hypernet_cfg = HyperNetConfig(
+                        embedding_layers=embedding_layers,
+                        head_hidden_dim=hypernet_cfg["head_hidden_dim"],
+                        head_init_method=hypernet_cfg["head_init_method"],
+                        head_init_stds=hypernet_cfg["head_init_stds"]
+                )
+            case "mlp":
+                cfg.critic_cfg.hypernet_cfg = MlpConfig(**hypernet_cfg)
+
     return cfg
 
 
@@ -235,6 +255,24 @@ def validate(cfg: structured_configs.MSAHyperConfig):
         raise ValueError(("Reward dim and ref-point mismatch! ref-point "
                           f"{cfg.training_cfg.ref_point} vs "
                           f"{cfg.critic_cfg.reward_dim}"))
+
+    if any( 
+           (elem:=target_input) not in ("action", "prefs", "obs")
+           for target_input in cfg.critic_cfg.target_net_inputs
+    ):
+        raise ValueError(("'critic_cfg.target_net_inputs' can contain keys "
+                          "'action', 'prefs', 'obs'. Got unknown key "
+                          f"{elem!r} instead"))
+
+    if len(cfg.critic_cfg.target_net_inputs) > 3:
+        raise ValueError(("The critic target net can take in atmost 3 inputs "
+                          "('action', 'obs' and 'prefs'). Got "
+                          f"{cfg.critic_cfg.target_net_inputs} instead"))
+    if len(cfg.critic_cfg.target_net_inputs) == 0:
+        raise ValueError(
+            "'critic_cfg.target_net_inputs' must contain atleast one input"
+        )
+
     
     missing_items = omegaconf.OmegaConf.missing_keys(cfg)
     if len(missing_items) > 0:

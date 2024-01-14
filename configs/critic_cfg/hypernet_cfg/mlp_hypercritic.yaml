@@ -1,0 +1,24 @@
+# Defines the configuration for the MLP network used as a hypernetwork
+# The configuration for the heads
+
+head_hidden_dim: 1024
+head_init_method: "uniform"
+head_init_stds:
+  - 0.05
+  - 0.008
+
+# The MLP configuration
+input_dim: "${sum:${..obs_dim}, ${..reward_dim}}"
+layer_features:
+  - 256
+  - 512
+  - ${..head_hidden_dim}
+activation_fn: "relu"
+apply_activation:
+  - true
+  - true
+  - true
+dropout_rates: 
+  - null
+  - null
+  - null

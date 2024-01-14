@@ -27,23 +27,26 @@ class HyperCritic(nn.Module):
         self._cfg = cfg
 
         self._logger.debug("Creating embedding...")
-
-        self._embeddeding = hn.Embedding(
-            embedding_layers=cfg.hypernet_cfg.embedding_layers
-        )
+        if cfg.hypernet_type == "mlp":
+            self._embedding = nets.create_mlp(
+                    input_dim=cfg.hypernet_cfg.input_dim,
+                    layer_features=cfg.hypernet_cfg.layer_features,
+                    activation_fn=cfg.hypernet_cfg.activation_fn,
+                    apply_activation=cfg.hypernet_cfg.apply_activation,
+                    dropout_rate=cfg.hypernet_cfg.dropout_rates
+            )
+        else:
+            self._embedding = hn.Embedding(
+                embedding_layers=cfg.hypernet_cfg.embedding_layers
+            )
         
         target_input_dim = nets.get_network_input_dim(
                 [
-                    (self._cfg.use_action, self._cfg.action_dim),
-                    (self._cfg.use_prefs, self._cfg.reward_dim),
-                    (self._cfg.use_obs, self._cfg.obs_dim)
+                    ("action" in self._cfg.target_net_inputs, self._cfg.action_dim),
+                    ("prefs" in self._cfg.target_net_inputs, self._cfg.reward_dim),
+                    ("obs" in self._cfg.target_net_inputs, self._cfg.obs_dim)
                 ]
         )
-        _target_input = self._get_target_input_dim()
-
-        assert target_input_dim == _target_input,\
-                f"{target_input_dim} != {_target_input}"
-
         if target_input_dim == 0:
             raise ValueError(("Atleast one of 'use_obs', 'use_action' and "
                               "'use_prefs' must be True"))
@@ -89,7 +92,8 @@ class HyperCritic(nn.Module):
         torch.Tensor
             The estimated Q(s, a, w) value with shape (batch_dim, reward_dim)
         """
-        z = self._embeddeding(torch.cat((obs, prefs), dim=-1))
+        z = self._embedding(torch.cat((obs, prefs), dim=-1))
+        self._logger.debug(f"Z shape {z.shape}")
         weights, biases, scales = self._critic_head(z)
 
         self._logger.debug("Generated params")
@@ -105,47 +109,6 @@ class HyperCritic(nn.Module):
         )
         # Remove the singleton dimension
         return out.squeeze(2)
-
-    def _get_target_input_dim(self) -> int:
-        """Get the input dimension for the target network, depending the 
-        input configuration the user defined.
-
-        Returns
-        -------
-        int
-            The input dimension of the target network.
-        """
-        if (
-                not self._cfg.use_obs and
-                not self._cfg.use_action and
-                not self._cfg.use_prefs
-        ):
-            raise ValueError(("Atleast one of 'use_obs', 'use_action' and "
-                              "'use_prefs' must be True"))
-
-        input_dim = None
-
-        if self._cfg.use_action and self._cfg.use_prefs and self._cfg.use_obs:
-            input_dim = self._cfg.obs_dim + self._cfg.action_dim + self._cfg.reward_dim
-        elif self._cfg.use_action and self._cfg.use_prefs:
-            input_dim = self._cfg.action_dim + self._cfg.reward_dim
-        elif self._cfg.use_action and self._cfg.use_obs:
-            input_dim = self._cfg.obs_dim + self._cfg.action_dim
-        elif self._cfg.use_prefs and self._cfg.use_obs:
-            input_dim = self._cfg.reward_dim + self._cfg.obs_dim
-        elif self._cfg.use_obs:
-            input_dim = self._cfg.obs_dim
-        elif self._cfg.use_action:
-            input_dim = self._cfg.action_dim
-        elif self._cfg.use_prefs:
-            input_dim = self._cfg.reward_dim
-
-        assert input_dim is not None, \
-            (f"Unknown combination of inputs: Obs {self._cfg.use_obs} | "
-             f"Action {self._cfg.use_action} | Prefs: {self._cfg.use_prefs}")
-
-        return input_dim
-
     def _get_target_input(
             self, obs: torch.Tensor, action: torch.Tensor, prefs: torch.Tensor
     ) -> torch.Tensor:
@@ -166,32 +129,19 @@ class HyperCritic(nn.Module):
         torch.Tensor
             The composed input for the target network.
         """
-        if (
-                not self._cfg.use_obs and
-                not self._cfg.use_action and
-                not self._cfg.use_prefs
-        ):
-            raise ValueError(("Atleast one of 'use_obs', 'use_action' and "
-                              "'use_prefs' must be True"))
 
-        out = None
-
-        if self._cfg.use_action and self._cfg.use_prefs and self._cfg.use_obs:
-            out = torch.cat((obs, action, prefs), dim=-1)
-        elif self._cfg.use_action and self._cfg.use_prefs:
-            out = torch.cat((obs, prefs), dim=-1)
-        elif self._cfg.use_action and self._cfg.use_obs:
-            out = torch.cat((obs, action), dim=-1)
-        elif self._cfg.use_prefs and self._cfg.use_obs:
-            out = torch.cat((obs, action), dim=-1)
-        elif self._cfg.use_obs:
-            out = obs
-        elif self._cfg.use_action:
-            out = action
-        elif self._cfg.use_prefs:
-            out = prefs
-
-        assert out is not None, \
-            (f"Unknown critic input config: obs: {self._cofg.use_obs} | "
-             f"Action {self._cfg.use_action} |  Prefs {self._cfg.use_prefs}")
-        return out
+        out = []
+        for target_input in self._cfg.target_net_inputs:
+            self._logger.debug(f"Adding {target_input} to target input")
+            match target_input:
+                case "obs":
+                    out.append(obs)
+                case "action":
+                    out.append(action)
+                case "prefs":
+                    out.append(prefs)
+                case _:
+                    raise ValueError(f"Unknown target input {target_input!r}!")
+        if len(out) == 1:
+            return out[0]
+        return torch.cat(out, dim=-1)

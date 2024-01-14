@@ -9,17 +9,18 @@ import torch
 import torch.nn.functional as F
 
 from .. import structured_configs as sconfigs
-from ..utils import common, configs, log, nets
+from ..utils import common, log, nets
 from .critic import HyperCritic
 from .policy import GaussianPolicy, HyperPolicy
 
 
 class MSAHyper:
     def __init__(
-            self,
-            cfg: sconfigs.MSAHyperConfig, *,
-            policy_cfg: sconfigs.PolicyConfig,
-            critic_cfg: sconfigs.CriticConfig,
+        self,
+        cfg: sconfigs.MSAHyperConfig,
+        *,
+        policy_cfg: sconfigs.PolicyConfig,
+        critic_cfg: sconfigs.CriticConfig,
     ):
         """Create a MSA-hyper network, that uses a modified CAPQL, with
         hypernetworks for (hopefully) generalizing the learned information
@@ -31,10 +32,11 @@ class MSAHyper:
             The configuration for the MSAHyper.
         """
         self._logger = log.get_logger("models.msa_hyper")
-        self._cfg = configs.as_structured_config(cfg)
+        self._cfg = cfg
         self._device = (
             torch.device(self._cfg.device)
-            if isinstance(self._cfg.device, str) else self._cfg.device
+            if isinstance(self._cfg.device, str)
+            else self._cfg.device
         )
 
         match policy_cfg.policy_type:
@@ -43,21 +45,21 @@ class MSAHyper:
             case "hyper-gaussian":
                 self._policy = HyperPolicy(policy_cfg).to(self._device)
             case _:
-                raise ValueError((
-                    f"Unknown policy-type {policy_cfg.policy_type!r}! "
-                    "Should be either a 'gaussian' or 'hyper-gaussian'"
-                ))
+                raise ValueError(
+                    (
+                        f"Unknown policy-type {policy_cfg.policy_type!r}! "
+                        "Should be either a 'gaussian' or 'hyper-gaussian'"
+                    )
+                )
 
         # Create the critics
         critic = HyperCritic
         self._critics = [
-            critic(critic_cfg).to(self._device)
-            for _ in range(self._cfg.n_networks)
+            critic(critic_cfg).to(self._device) for _ in range(self._cfg.n_networks)
         ]
 
         self._critic_targets = [
-            critic(critic_cfg).to(self._device)
-            for _ in range(self._cfg.n_networks)
+            critic(critic_cfg).to(self._device) for _ in range(self._cfg.n_networks)
         ]
 
         # Note: The target parameters are not updated directly through gradient
@@ -69,9 +71,8 @@ class MSAHyper:
                 param.requires_grad_(False)
 
         self._critic_optim = nets.get_optim_by_name(self._cfg.critic_optim)(
-            itertools.chain(*[critic.parameters()
-                            for critic in self._critics]),
-            lr=self._cfg.critic_lr
+            itertools.chain(*[critic.parameters() for critic in self._critics]),
+            lr=self._cfg.critic_lr,
         )
 
         self._policy_optim = nets.get_optim_by_name(self._cfg.policy_optim)(
@@ -80,12 +81,12 @@ class MSAHyper:
 
     @property
     def config(self) -> sconfigs.MSAHyperConfig:
-        '''Get the configuration for MSA'''
+        """Get the configuration for MSA"""
         return self._cfg
 
     @property
     def device(self) -> torch.device:
-        """ Get the currently used device """
+        """Get the currently used device"""
         return self._device
 
     def save(self, dir_path: pathlib.Path | str):
@@ -107,33 +108,31 @@ class MSAHyper:
         for i, critic in enumerate(self._critics):
             state[f"critic_{i}"] = {
                 "state": critic.state_dict(),
-                "config": dataclasses.asdict(critic.config)
+                "config": dataclasses.asdict(critic.config),
             }
 
         # Critic targets
         for i, critic in enumerate(self._critic_targets):
             state[f"critic_target_{i}"] = {
                 "state": critic.state_dict(),
-                "config": dataclasses.asdict(critic.config)
+                "config": dataclasses.asdict(critic.config),
             }
 
         # Policy
         state["policy"] = {
             "state": self._policy.state_dict(),
-            "config": self._policy.config
+            "config": self._policy.config,
         }
 
         state["msa_hyper"] = {
             "policy_optim": self._policy_optim.state_dict(),
             "critic_optim": self._critic_optim.state_dict(),
-            "config": dataclasses.asdict(self._cfg)
+            "config": dataclasses.asdict(self._cfg),
         }
         torch.save(state, dir_path / "msa_hyper.tar")
 
     @torch.no_grad
-    def eval_action(
-            self, obs: torch.Tensor, prefs: torch.Tensor
-    ) -> torch.Tensor:
+    def eval_action(self, obs: torch.Tensor, prefs: torch.Tensor) -> torch.Tensor:
         """Take an "evaluation" action with the current policy. NOTE: No
         gradient information is tracked during this.
 
@@ -151,9 +150,7 @@ class MSAHyper:
         """
         return self._policy.eval_action(obs, prefs)
 
-    def take_action(
-            self, obs: torch.Tensor, prefs: torch.Tensor
-    ) -> torch.Tensor:
+    def take_action(self, obs: torch.Tensor, prefs: torch.Tensor) -> torch.Tensor:
         """
         Take an action with the current policy.
 
@@ -172,7 +169,7 @@ class MSAHyper:
         return self._policy.take_action(obs, prefs)
 
     def update(
-            self, replay_samples: List[common.ReplaySample]
+        self, replay_samples: List[common.ReplaySample]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Update the Q-networks and the policy network.
 
@@ -191,27 +188,36 @@ class MSAHyper:
             replay_sample = sample.as_tensors(self._device)
             # Get the Q-target values
             with torch.no_grad():
-                next_state_action, next_state_log_prob, next_state_mean =\
-                    self._policy.sample_action(
-                        replay_sample.next_obs, replay_sample.prefs
-                    )
+                (
+                    next_state_action,
+                    next_state_log_prob,
+                    next_state_mean,
+                ) = self._policy.sample_action(
+                    replay_sample.next_obs, replay_sample.prefs
+                )
 
-                state_value_targets = torch.stack([
-                    target_net(
-                        replay_sample.next_obs, next_state_action, replay_sample.prefs
-                    ) for target_net in self._critic_targets
-                ])
+                state_value_targets = torch.stack(
+                    [
+                        target_net(
+                            replay_sample.next_obs,
+                            next_state_action,
+                            replay_sample.prefs,
+                        )
+                        for target_net in self._critic_targets
+                    ]
+                )
                 # Find the minimum values among the networks and add the rewards
                 # to the minimum q-values.
                 # (third line in CAPQL pseudo-code training loop)
-                min_targets = (
-                    torch.min(state_value_targets, dim=0).values
-                    - self._cfg.alpha * next_state_log_prob.view(-1, 1)
-                )
+                min_targets = torch.min(
+                    state_value_targets, dim=0
+                ).values - self._cfg.alpha * next_state_log_prob.view(-1, 1)
 
                 target_q_values = (
-                    replay_sample.rewards + self._cfg.gamma *
-                    (1 - replay_sample.dones.unsqueeze(1)) * min_targets
+                    replay_sample.rewards
+                    + self._cfg.gamma
+                    * (1 - replay_sample.dones.unsqueeze(1))
+                    * min_targets
                 ).detach()
 
             # Update the networks
@@ -220,15 +226,12 @@ class MSAHyper:
 
             # Lastly, update the q-target networks
             for critic, critic_target in zip(self._critics, self._critic_targets):
-                nets.polyak_update(
-                    src=critic, dst=critic_target, tau=self._cfg.tau
-                )
+                nets.polyak_update(src=critic, dst=critic_target, tau=self._cfg.tau)
 
         return critic_loss, policy_loss
 
     def _update_q_network(
-            self, target_q_values: torch.Tensor,
-            replay_sample: common.ReplaySample
+        self, target_q_values: torch.Tensor, replay_sample: common.ReplaySample
     ) -> torch.Tensor:
         """Update the critic networks.
 
@@ -245,10 +248,8 @@ class MSAHyper:
             The loss of the critc network.
         """
         q_vals = [
-            critic(
-                replay_sample.obs, replay_sample.actions,
-                replay_sample.prefs
-            ) for critic in self._critics
+            critic(replay_sample.obs, replay_sample.actions, replay_sample.prefs)
+            for critic in self._critics
         ]
         critic_loss = (1 / self._cfg.n_networks) * sum(
             F.mse_loss(q_value, target_q_values) for q_value in q_vals
@@ -259,9 +260,7 @@ class MSAHyper:
         self._critic_optim.step()
         return critic_loss
 
-    def _update_policy(
-            self, replay_sample: common.ReplaySample
-    ) -> torch.Tensor:
+    def _update_policy(self, replay_sample: common.ReplaySample) -> torch.Tensor:
         """Update the Policy network.
 
         Parameters
@@ -280,10 +279,12 @@ class MSAHyper:
         )
 
         # Calculate the corresponding state-action values.
-        q_values = torch.stack([
-            critic(replay_sample.obs, action, replay_sample.prefs)
-            for critic in self._critics
-        ])
+        q_values = torch.stack(
+            [
+                critic(replay_sample.obs, action, replay_sample.prefs)
+                for critic in self._critics
+            ]
+        )
 
         # Minimize the KL-divergence
         min_q_val = torch.min(q_values, dim=0).values

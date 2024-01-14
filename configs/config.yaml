@@ -4,8 +4,10 @@ defaults:
   - training_cfg: train
   - session_cfg: session
   - policy_cfg: policy
-  - critic_cfg: hypercritic
+  - critic_cfg: resnet_hypercritic 
   - msa_hyper_cfg: msa_hyper
 
 seed: 0
 device: "cpu"
+# The amount of cores to use. Used only if device is cpu
+n_threads: 4
