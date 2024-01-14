@@ -9,6 +9,7 @@ import wandb
 from src.utils import common, envs, evaluation, log, pareto
 
 from . import structured_configs
+from .structured_configs import PrefSamplerFreq
 
 
 def train_agent(cfg: structured_configs.Config, agent):
@@ -115,8 +116,16 @@ def _gym_training_loop(
 
     for ts in range(training_cfg.n_timesteps):
         global_step += 1
-        prefs = weight_sampler.sample(n_samples=1)
-        prefs = prefs.squeeze()
+
+        if (
+                global_step == 1 or 
+                training_cfg.pref_sampling_freq == PrefSamplerFreq.timestep
+        ):
+            logger.debug(
+                    f"Sampling preference at episode {num_episodes}, ts {global_step}"
+            )
+            prefs = weight_sampler.sample(n_samples=1)
+            prefs = prefs.squeeze()
 
         assert ((prefs.sum(axis=-1) - 1).abs() < 1e-8).all(),\
                 f"Not all prefs sum to one! ({prefs.sum(axis=-1).min()}, {prefs.sum(axis=-1).max()}"
@@ -138,9 +147,9 @@ def _gym_training_loop(
         obj = {"step": global_step, "episode": num_episodes}
         prefs_list = prefs.tolist()
         rewards_list = rewards.tolist()
-        for i in range(len(rewards_list)):
-            obj[f"pref_{i}"] = prefs_list[i]
-            obj[f"reward_{i}"] = rewards_list[i]
+        for i, (pref, rew) in enumerate(zip(prefs_list, rewards_list)):
+            obj[f"pref_{i}"] = pref
+            obj[f"reward_{i}"] = rew
         preference_table.append(obj)
 
 
@@ -243,6 +252,16 @@ def _gym_training_loop(
             log.log_episode_stats(
                 info, prefs=prefs, global_step=global_step, logger=logger
             )
+
+            if (
+                training_cfg.pref_sampling_freq == PrefSamplerFreq.episode
+            ):
+                logger.debug(
+                    f"Sampling preference at episode {num_episodes}, ts {global_step}"
+                )
+                prefs = weight_sampler.sample(n_samples=1)
+                prefs = prefs.squeeze()
+
             obs, info = env.reset()
         else:
             obs = next_obs

@@ -2,8 +2,12 @@
 
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Tuple
+from enum import Enum
 
 from omegaconf import MISSING
+
+
+PrefSamplerFreq = Enum("PrefSamplerFreq", ["timestep", "episode"])
 
 
 @dataclass
@@ -17,7 +21,7 @@ class MSAHyperConfig:
         [0, 1]. If 0, the optimization task becomes the traditional RL
         optimization task.
     tau: float The factor used for the update of the target networks.
-        Should be in range (0.0, 1.0]. if tau == 1.0, we copy the 
+        Should be in range (0.0, 1.0]. if tau == 1.0, we copy the
         parameters directly.
     critic_optim: str The optimizer for the critic. Default adam.
     critic_lr: float The learning rate for the critic optimizer. Default 3e-4.
@@ -25,6 +29,7 @@ class MSAHyperConfig:
     critic_lr: float The learning rate for the policy optimizer. Default 3e-4
 
     """
+
     n_networks: int = 2
     alpha: float = MISSING
     tau: float = MISSING
@@ -43,17 +48,18 @@ class ResblockConfig:
 
     Attributes
     ----------
-    n_resblocks: int The amount of residual blocks to add in a single block. 
+    n_resblocks: int The amount of residual blocks to add in a single block.
         Default 2
     input_dim: int The input dimension of the network.
     activation_fn: Callable | str The activation function to use. Default "relu"
     layer_features: Tuple[int, ...] The desired number of features per layer.
         The last value indicates the ouput size of the network.
         Default (128, 128) (i.e. two linear layers with 128 neurons)
-    dropout_rates: Tuple[float | None, ...] Controls the used dropout rate. 
+    dropout_rates: Tuple[float | None, ...] Controls the used dropout rate.
         If the dropout_rate is None, no dropout is applied after that layer.
 
     """
+
     n_resblocks: int = 2
     input_dim: int = MISSING
     activation_fn: str = "relu"
@@ -69,7 +75,7 @@ class HyperNetConfig:
 
     Atrributes
     ----------
-    embedding_layers: Tuple[ResblockConfig, ...] The configuration for the 
+    embedding_layers: Tuple[ResblockConfig, ...] The configuration for the
         embedding network.
     head_hidden_dim: int The hidden dimension for the head network. Should match
         the ouput of the embedding layer.
@@ -79,8 +85,9 @@ class HyperNetConfig:
         initializing the network.
     use_weight_norm: bool Controls if the weights are renormalized. Default False
     """
+
     embedding_layers: Tuple[ResblockConfig, ...] = field(
-        default_factory=lambda: (ResblockConfig, )
+        default_factory=lambda: (ResblockConfig,)
     )
     head_hidden_dim: int = MISSING
     head_init_method: str = "uniform"
@@ -98,7 +105,7 @@ class CriticConfig:
         blocks
     layer_dims: Tuple[int, ...] The dimensions for the dynamic network.
     reward_dim: int The reward dimension of the environment. Default 3.
-    obs_dim: int The observation dimension of the  environment. Default 3 
+    obs_dim: int The observation dimension of the  environment. Default 3
     head_hidden_dim: int The hidden dimension of the "Heads". Default 1024.
     activation_fn: Callable | str: The activation function used in the dynamic
         network. Default "relu"
@@ -112,6 +119,7 @@ class CriticConfig:
         Determines if the critic is given the observation as an input or not.
         Default False.
     """
+
     layer_dims: Tuple[int, ...] = MISSING
     reward_dim: int = MISSING
     obs_dim: int = MISSING
@@ -136,15 +144,16 @@ class PolicyConfig:
     reward_dim: int The reward dimension of the used environment.
     output_dim: int The output dimesion of the network
         (i.e. the action dimension)
-    layer_features: Tuple[int, ...] The architecture of the network as a 
+    layer_features: Tuple[int, ...] The architecture of the network as a
         list of the desired number of neurons in each layer.
     activation_fn: str The activation function to be used in the neural network.
         Default "relu"
     action_space_high: List[float] The upper bound of the used action space.
     action_space_low: List[float] The lower bound of the used action space.
-    ResblockConfig: Tuple[ResblockConfig, ...] The configuration for the 
+    ResblockConfig: Tuple[ResblockConfig, ...] The configuration for the
         residual network. Used only if 'policy_type' == 'hyper-gaussian'
     """
+
     policy_type: str = "gaussian"
     obs_dim: int = MISSING
     reward_dim: int = MISSING
@@ -176,6 +185,7 @@ class SessionConfig:
     run_name: str The name of current run.
 
     """
+
     entity_name: str = MISSING
     project_name: str = MISSING
     experiment_group: str = MISSING
@@ -189,7 +199,7 @@ class TrainingConfig:
 
     Attributes:
         n_timesteps: int The amount of timesteps to train for. Default 1000
-        n_random_steps: int The amount of random actions to make during the 
+        n_random_steps: int The amount of random actions to make during the
             start of the training before starting to follow the policy.
         env_id: str The environment at which the model is trained at.
         batch_size: int The batch size used for training the MSA-hyper.
@@ -198,7 +208,7 @@ class TrainingConfig:
         sampler_type: str The used type of sampler. Can be either "normal",
             "uniform" or "static". Default "normal"
         angle_deg: float The angle for the data (in degrees). Default 22.5
-        n_gradient_steps: int The amount of update steps to take during 
+        n_gradient_steps: int The amount of update steps to take during
             each time the model is updated.
         save_path: str The path where the results will be saved to.
         log_to_stdout: bool If set to True, data will be logged to stdout/stderr
@@ -226,6 +236,7 @@ class TrainingConfig:
 
     # Sampler
     sampler_type: str = "normal"
+    pref_sampling_freq: PrefSamplerFreq = "timestep"
     angle_deg: float = 45
 
     # updates
@@ -257,6 +268,7 @@ class Config:
     seed: int | None The seed used in the run. Default None.
     device: str The used device for the torch computations. Default cpu.
     """
+
     training_cfg: TrainingConfig = MISSING
     session_cfg: SessionConfig = MISSING
     policy_cfg: PolicyConfig = MISSING
@@ -266,7 +278,7 @@ class Config:
     device: str = "cpu"
 
     def summarize(self) -> Dict[str, Any]:
-        """Summarize the currently used configurations as a single 
+        """Summarize the currently used configurations as a single
         dict that contains the most relevant options.
 
         Returns
@@ -281,9 +293,10 @@ class Config:
             "reward_dim": self.policy_cfg.reward_dim,
             "action_dim": self.critic_cfg.action_dim,
             "n_timesteps:": self.training_cfg.n_timesteps,
+            "sampler_type": self.training_cfg.sampler_type,
+            "pref_sampling_freq": self.training_cfg.pref_sampling_freq.name,
             "batch_size": self.training_cfg.batch_size,
             "buffer_capacity": self.training_cfg.buffer_capacity,
-
             # MSA-hyper
             "n_networks": self.msa_hyper_cfg.n_networks,
             "alpha": self.msa_hyper_cfg.alpha,
@@ -293,16 +306,15 @@ class Config:
             "critic_optim": self.msa_hyper_cfg.critic_optim,
             "policy_lr": self.msa_hyper_cfg.policy_lr,
             "policy_optim": self.msa_hyper_cfg.policy_optim,
-
             # Policy
             "policy/type": self.policy_cfg.policy_type,
             "policy/layer_features": self.policy_cfg.layer_features,
             "policy/activation_fn": self.policy_cfg.activation_fn,
             "policy/hypernet_cfg": (
                 asdict(self.policy_cfg.hypernet_cfg)
-                if self.policy_cfg.policy_type == "hyper-gaussian" else None
+                if self.policy_cfg.policy_type == "hyper-gaussian"
+                else None
             ),
-
             # Critic
             "critic/layer_dims": self.critic_cfg.layer_dims,
             "critic/activation_fn": self.critic_cfg.activation_fn,
@@ -310,7 +322,6 @@ class Config:
             "critic/use_obs_input": self.critic_cfg.use_obs,
             "critic/use_prefs_input": self.critic_cfg.use_prefs,
             "critic/hypernet_cfg": asdict(self.critic_cfg.hypernet_cfg),
-
             # Common stuff
-            "seed": self.seed
+            "seed": self.seed,
         }
