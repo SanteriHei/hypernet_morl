@@ -351,6 +351,9 @@ class Config:
             "critic/activation_fn": self.critic_cfg.activation_fn,
             "critic/target_net_inputs": self.critic_cfg.target_net_inputs,
             "critic/hypernet_cfg": asdict(self.critic_cfg.hypernet_cfg),
+            
             # Common stuff
             "seed": self.seed,
+            "device": self.device,
+            "n_threads": 1 if "cuda" in self.device else self.n_threads
         }
