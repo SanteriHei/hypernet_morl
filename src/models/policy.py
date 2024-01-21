@@ -212,9 +212,14 @@ class HyperPolicy(nn.Module):
 
         target_input_dim = nets.get_network_input_dim(
                 [
-                    (self._cfg.target_use_obs, self._cfg.obs_dim),
-                    (self._cfg.target_use_prefs, self._cfg.reward_dim)
+                    ("obs" in self._cfg.target_net_inputs, self._cfg.obs_dim),
+                    ("prefs" in self._cfg.target_net_inputs, self._cfg.reward_dim)
+
                 ]
+                # [
+                #     (self._cfg.target_use_obs, self._cfg.obs_dim),
+                #     (self._cfg.target_use_prefs, self._cfg.reward_dim)
+                # ]
         ) 
         self._policy_head = hn.HeadNet(
             hidden_dim=cfg.hypernet_cfg.head_hidden_dim,
@@ -411,29 +416,46 @@ class HyperPolicy(nn.Module):
     ) -> torch.Tensor:
         match network:
             case "hyper":
-                use_obs = self._cfg.hypernet_use_obs
-                use_prefs = self._cfg.hypernet_use_prefs
+                input_list = self._cfg.hypernet_inputs
             case "target":
-                use_obs = self._cfg.target_use_obs
-                use_prefs = self._cfg.target_use_prefs
+                input_list = self._cfg.target_net_inputs
             case _:
                 raise ValueError((f"Unknown network {network!r}! network must "
                                   "be one of 'hyper', 'target'"))
-
-        if not use_obs and not use_prefs:
+        
+        if len(input_list) == 0:
             raise ValueError(
-                ("Atleast one of 'use_obs' and 'use_prefs' must be True")
+                (f"Policy {network} must use atleast one of 'obs', 'prefs' as "
+                 "it's input!")
             )
 
-        out = None
+        out = []
+        for network_input in input_list:
+            self._logger.debug(f"Adding {network_input} to {network} input")
+            match network_input:
+                case "prefs":
+                    out.append(prefs)
+                case "obs":
+                    out.append(obs)
+                case _:
+                    raise ValueError(
+                            f"Unknown {network} input {network_input!r}"
+                    )
+        
+        return out[0] if len(out) == 1 else torch.cat(out, dim=-1)
+        # if not use_obs and not use_prefs:
+        #     raise ValueError(
+        #         ("Atleast one of 'use_obs' and 'use_prefs' must be True")
+        #     )
+        # out = None
 
-        if use_obs and use_prefs:
-            out = torch.cat((obs, prefs), dim=-1)
-        elif use_obs:
-            out = obs
-        elif use_prefs:
-            out = prefs
-        else:
-            assert False, ("Unknown combination of prefs and obs "
-                           f"({use_prefs}, {use_obs})")
-        return out
+        # if use_obs and use_prefs:
+        #     out = torch.cat((obs, prefs), dim=-1)
+        # elif use_obs:
+        #     out = obs
+        # elif use_prefs:
+        #     out = prefs
+        # else:
+        #     assert False, ("Unknown combination of prefs and obs "
+        #                    f"({use_prefs}, {use_obs})")
+        # return out

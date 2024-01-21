@@ -42,7 +42,7 @@ def register_resolvers():
 
     omegaconf.OmegaConf.register_new_resolver(
         name="network.input_dim",
-        resolver=_resolve_input_dim
+        resolver=_resolve_input_dim_v2
     )
 
 def register_configs(cs: ConfigStore):
@@ -169,6 +169,31 @@ def _resolve_action_space_high(env_id: str) -> List[float]:
     action_space_high = tmp_env.action_space.high.tolist()
     tmp_env.close()
     return action_space_high
+
+
+def _resolve_input_dim_v2(
+        input_list: List[str], env_id: str
+) -> int:
+    tmp_env = mo_gym.make(env_id)
+    reward_dim = tmp_env.get_wrapper_attr("reward_space").shape[0]
+    action_dim = tmp_env.action_space.shape[0]
+    obs_dim = tmp_env.observation_space.shape[0]
+    tmp_env.close()
+    
+    input_dim = 0
+    for net_input in input_list:
+        match net_input:
+            case "prefs":
+                input_dim += reward_dim
+            case "obs":
+                input_dim += obs_dim
+            case "action":
+                input_dim += action_dim
+    return input_dim
+
+
+
+
 
 def _resolve_input_dim(
         use_input_1, use_input_2, input_dim_1, input_dim_2

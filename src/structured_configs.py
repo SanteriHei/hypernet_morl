@@ -1,14 +1,38 @@
 """ Defines all the structured configs for the models """
 
+import os
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from omegaconf import MISSING
 
 
-PrefSamplerFreq = Enum("PrefSamplerFreq", ["timestep", "episode"])
+def _get_slurm_job_id() -> int | None:
+    """Get the slurm job id if one is found.
 
+    Returns
+    -------
+    int | None
+        The job id if one is found, None otherwise.
+    """
+    job_id = os.environ.get("SLURM_ARRAY_JOB_ID", None)
+    if job_id is None:
+        job_id = os.environ.get("SLURM_JOB_ID", None)
+    return int(job_id) if job_id is not None else job_id
+
+def _get_slurm_array_task_id() -> int | None:
+    """Get the slurm array task id.
+
+    Returns
+    -------
+    int | None
+        The slurm array task id if one is found, None otherwise.
+    """
+    task_id = os.environ.get("SLURM_ARRAY_TASK_ID", None)
+    return int(task_id) if task_id is not None else task_id
+
+PrefSamplerFreq = Enum("PrefSamplerFreq", ["timestep", "episode"])
 
 @dataclass
 class MSAHyperConfig:
@@ -69,15 +93,15 @@ class ResblockConfig:
 
 @dataclass
 class MlpConfig:
-    """ Configuration for creating an MLP.
+    """Configuration for creating an MLP.
 
     Attributes
     ----------
     input_dim: int The dimensionality of the network inputs.
-    layer_features: Tuple[int, ...] Define the amount of neurons in each 
+    layer_features: Tuple[int, ...] Define the amount of neurons in each
         consecutive layer.
     activation_fn: str The activation function to use between the layers.
-    apply_activation: Tuple[bool, ...] Controls if the activation function 
+    apply_activation: Tuple[bool, ...] Controls if the activation function
         is added after a linear layer.
     dropout_rates: Tuple[float | None, ...] The dropout rate to add after
         the layer. If None, no dropout is used.
@@ -88,16 +112,18 @@ class MlpConfig:
     head_init_stds: Tuple[float, ...] | float. The standard deviations used for
         initializing the network.
     """
+
     input_dim: int = MISSING
     layer_features: Tuple[int, ...] = MISSING
-    activation_fn: str  = MISSING
+    activation_fn: str = MISSING
     apply_activation: Tuple[bool, ...] = MISSING
     dropout_rates: Tuple[float | None, ...] = MISSING
-    
+
     # Configuration for the heads
     head_hidden_dim: int = MISSING
     head_init_method: str = "uniform"
     head_init_stds: Tuple[float, ...] = MISSING
+
 
 @dataclass
 class HyperNetConfig:
@@ -157,7 +183,7 @@ class CriticConfig:
     obs_dim: int = MISSING
     action_dim: int = MISSING
     activation_fn: str = "relu"
-    target_net_inputs: Tuple[str, ...] = ("action", )
+    target_net_inputs: Tuple[str, ...] = ("action",)
 
     hypernet_type: str = MISSING
     hypernet_cfg: Any = MISSING
@@ -194,13 +220,11 @@ class PolicyConfig:
     action_space_high: List[float] = MISSING
     action_space_low: List[float] = MISSING
 
-    target_use_obs: bool = True
-    target_use_prefs: bool = True
+    target_net_inputs: Tuple[str, ...] = ("obs", "prefs")
 
-    hypernet_use_obs: bool = True
-    hypernet_use_prefs: bool = True
+    hypernet_inputs: Tuple[str, ...] = ("obs", "prefs")
 
-    hypernet_cfg: HyperNetConfig = MISSING
+    hypernet_cfg: Optional[HyperNetConfig] = MISSING
 
 
 @dataclass
@@ -214,13 +238,18 @@ class SessionConfig:
     experiment_name: str The name of the experiment/project.
     experiment_group: str The name of the group of the runs.
     run_name: str The name of current run.
-
+    slurm_job_id: int | None The Job id of the slurm run,
+    slurm_task_id: int | None The task id of the slurm array.
     """
 
     entity_name: str = MISSING
     project_name: str = MISSING
     experiment_group: str = MISSING
     run_name: str = MISSING
+    slurm_job_id: int | None = _get_slurm_job_id()
+    slurm_array_task_id: int | None = _get_slurm_array_task_id()
+
+
 
 
 @dataclass
@@ -318,6 +347,9 @@ class Config:
             The most relevant configuration options.
         """
         return {
+            # Session
+            "slurm_job_id": self.session_cfg.slurm_job_id,
+            "slurm_array_task_id": self.session_cfg.slurm_array_task_id,
             # Training
             "env_id": self.training_cfg.env_id,
             "obs_dim": self.policy_cfg.obs_dim,
@@ -341,6 +373,16 @@ class Config:
             "policy/type": self.policy_cfg.policy_type,
             "policy/layer_features": self.policy_cfg.layer_features,
             "policy/activation_fn": self.policy_cfg.activation_fn,
+            "policy/target_net_inputs": (
+                self.policy_cfg.target_net_inputs
+                if self.policy_cfg.policy_type == "hper-gaussian"
+                else None
+            ),
+            "policy/hypernet_inputs": (
+                self.policy_cfg.hypernet_inputs
+                if self.policy_cfg.policy_type == "hper-gaussian"
+                else None
+            ),
             "policy/hypernet_cfg": (
                 asdict(self.policy_cfg.hypernet_cfg)
                 if self.policy_cfg.policy_type == "hyper-gaussian"
@@ -351,9 +393,10 @@ class Config:
             "critic/activation_fn": self.critic_cfg.activation_fn,
             "critic/target_net_inputs": self.critic_cfg.target_net_inputs,
             "critic/hypernet_cfg": asdict(self.critic_cfg.hypernet_cfg),
-            
             # Common stuff
             "seed": self.seed,
             "device": self.device,
-            "n_threads": 1 if "cuda" in self.device else self.n_threads
+            "n_threads": 1 if "cuda" in self.device else self.n_threads,
         }
+
+

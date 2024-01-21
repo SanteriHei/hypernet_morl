@@ -1,15 +1,13 @@
 defaults:
   - base_policy
 
-policy_type: "gaussian"
+policy_type: "hyper-gaussian"
 activation_fn: "relu"
 obs_dim: "${env.obs_dim:${..training_cfg.env_id}}"
 reward_dim: "${env.reward_dim:${..training_cfg.env_id}}"
 output_dim: "${env.action_dim:${..training_cfg.env_id}}"
 action_space_low: "${env.action_space_low:${..training_cfg.env_id}}"
 action_space_high: "${env.action_space_high:${..training_cfg.env_id}}"
-target_use_obs: true
-target_use_prefs: true
 
 layer_features: 
   - 256
@@ -25,8 +23,8 @@ hypernet_cfg:
     - 0.008
   embedding_layers:
     - n_resblocks: 2
-      input_dim: "${network.input_dim:${....hypernet_use_obs}, ${....hypernet_use_prefs}, ${....obs_dim}, ${....reward_dim}}"
-      # input_dim: "${sum:${....obs_dim}, ${....reward_dim}}"
+      input_dim: "${network.input_dim:${....hypernet_inputs}, ${.....training_cfg.env_id}}"
+      #input_dim: "${network.input_dim:${....hypernet_use_obs}, ${....hypernet_use_prefs}, ${....obs_dim}, ${....reward_dim}}"
       activation_fn: "relu"
       layer_features:
         - 256

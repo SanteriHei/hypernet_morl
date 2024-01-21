@@ -3,7 +3,7 @@ defaults:
   - base_config
   - training_cfg: train
   - session_cfg: session
-  - policy_cfg: policy
+  - policy_cfg: gaussian_policy
   - critic_cfg: resnet_hypercritic 
   - msa_hyper_cfg: msa_hyper
 
