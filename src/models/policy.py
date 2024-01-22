@@ -164,7 +164,8 @@ class GaussianPolicy(nn.Module):
         normal_distr = torch.distributions.Normal(mean, std)
         x_t = normal_distr.rsample()  # reparmeterization trick
 
-        # Convert the sample to the (-1, 1) scale
+        # Convert the sample to the (-1, 1) scale and then convert it to the
+        # corresponding scale.
         y_t = torch.tanh(x_t)
         action = y_t * self._action_scale + self._action_bias
 

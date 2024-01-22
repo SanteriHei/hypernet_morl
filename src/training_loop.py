@@ -2,8 +2,8 @@ import logging
 import pathlib
 
 import gymnasium as gym
-import torch
 import numpy as np
+import torch
 
 import wandb
 from src.utils import common, envs, evaluation, log, pareto
@@ -39,13 +39,14 @@ def train_agent(cfg: structured_configs.Config, agent):
         action_dim=cfg.policy_cfg.output_dim,
         seed=cfg.seed,
     )
-    
-    
+
     # Only the "normal" sampler is using the angle, other samplers just ignore it
     preference_sampler = common.get_preference_sampler(
-            cfg.training_cfg.sampler_type, cfg.critic_cfg.reward_dim, 
-            device=agent.device, seed=cfg.seed,
-            angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg)
+        cfg.training_cfg.sampler_type,
+        cfg.critic_cfg.reward_dim,
+        device=agent.device,
+        seed=cfg.seed,
+        angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg),
     )
 
     trained_agent, pareto_front_table, preference_table = _gym_training_loop(
@@ -69,10 +70,7 @@ def train_agent(cfg: structured_configs.Config, agent):
             pareto_front_table,
         )
 
-        common.dump_json(
-                save_dir_path / "preference_table.json",
-                preference_table
-        )
+        common.dump_json(save_dir_path / "preference_table.json", preference_table)
 
     if wandb_run is not None:
         wandb_run.finish()
@@ -118,17 +116,15 @@ def _gym_training_loop(
         global_step += 1
 
         if (
-                global_step == 1 or 
-                training_cfg.pref_sampling_freq == PrefSamplerFreq.timestep
+            global_step == 1
+            or training_cfg.pref_sampling_freq == PrefSamplerFreq.timestep
         ):
             prefs = weight_sampler.sample(n_samples=1)
             prefs = prefs.squeeze()
 
         if global_step < training_cfg.n_random_steps:
             action = torch.tensor(
-                env.action_space.sample(),
-                device=agent.device,
-                dtype=torch.float32
+                env.action_space.sample(), device=agent.device, dtype=torch.float32
             )
         else:
             with torch.no_grad():
@@ -146,7 +142,6 @@ def _gym_training_loop(
             obj[f"reward_{i}"] = rew
         preference_table.append(obj)
 
-
         # Update the agent
         if global_step > training_cfg.n_random_steps:
             batches = [
@@ -154,7 +149,7 @@ def _gym_training_loop(
                 for _ in range(training_cfg.n_gradient_steps)
             ]
             critic_loss, policy_loss = agent.update(batches)
-            
+
             # Log metrics
             if global_step % training_cfg.log_every_nth == 0:
                 log.log_losses(
@@ -173,8 +168,7 @@ def _gym_training_loop(
                 n_episodes=training_cfg.n_eval_episodes,
             )
             log.log_eval_info(
-                eval_info, global_step=global_step, wandb_run=wandb_run,
-                logger=logger
+                eval_info, global_step=global_step, wandb_run=wandb_run, logger=logger
             )
 
         # Similarly, we evaluate the policy on the evaluation preferences
@@ -208,11 +202,13 @@ def _gym_training_loop(
             current_front = current_front[non_dominated_inds].tolist()
             current_stds = current_stds[non_dominated_inds].tolist()
             log.warn_if(
-                    logger, len(current_front) == 0,
-                    (f"The pareto front is empty at episode {num_episodes} "
-                    f"(step {global_step})")
+                logger,
+                len(current_front) == 0,
+                (
+                    f"The pareto front is empty at episode {num_episodes} "
+                    f"(step {global_step})"
+                ),
             )
-
 
             # Store the current pareto front
             for avg_disc_return, std_disc_return in zip(current_front, current_stds):
@@ -237,6 +233,7 @@ def _gym_training_loop(
                 ref_point=training_cfg.ref_point,
                 reward_dim=reward_dim,
                 global_step=global_step,
+                ref_set=np.asarray(training_cfg.ref_set),
                 wandb_run=wandb_run,
                 logger=logger,
             )
@@ -247,9 +244,7 @@ def _gym_training_loop(
                 info, prefs=prefs, global_step=global_step, logger=logger
             )
 
-            if (
-                training_cfg.pref_sampling_freq == PrefSamplerFreq.episode
-            ):
+            if training_cfg.pref_sampling_freq == PrefSamplerFreq.episode:
                 prefs = weight_sampler.sample(n_samples=1)
                 prefs = prefs.squeeze()
 
@@ -281,4 +276,3 @@ def _gym_training_loop(
             },
         )
     return agent, pareto_front_table, preference_table
-

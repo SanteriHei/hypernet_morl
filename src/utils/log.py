@@ -154,6 +154,7 @@ def log_mo_metrics(
         global_step: int,
         wandb_run: WandbRun | None = None,
         logger: logging.Logger | None = None,
+        ref_set: npt.NDArray | None = None,
         n_sample_prefs: int = 50
 ):
     """Log common multi-objective metrics.
@@ -191,15 +192,26 @@ def log_mo_metrics(
         )
     )
 
+    if ref_set is not None:
+        igd_plus_max = metrics.get_igd_plus_max(ref_set, filtered_front)
+        igd_plus = metrics.get_igd_plus(ref_set, filtered_front)
+    else:
+        igd_plus_max = None
+        igd_plus = None
+
     if wandb_run is not None:
-        wandb_run.log(
-            {
+        payload = {
                 "eval/hypervolume": hypervol,
                 "eval/sparsity": sparsity,
                 "eval/eum": eum,
                 "global-step": global_step
-            }, commit=False
-        )
+        }
+
+        if igd_plus_max is not None:
+            payload["eval/igd_plus_max"] = igd_plus_max
+            payload["eval/igd_plus"] = igd_plus
+
+        wandb_run.log(payload, commit=False)
 
         # Add the pareto-front as a table
         front = wandb.Table(
@@ -210,10 +222,16 @@ def log_mo_metrics(
 
     # If logger is provided, log also to it.
     if logger is not None:
-        logger.info(
-            (f"{global_step} | Hypervolume: {hypervol:.3f} | Sparsity "
-             f"{sparsity:.3f} | EUM: {eum:.3f}")
+        info_text = (
+                f"{global_step} | Hypervolume: {hypervol:.3f} | Sparsity "
+                f"{sparsity:.3f} | EUM {eum:.3f}"
         )
+        if igd_plus_max is not None:
+            info_text = (
+                    f"{info_text} | IGD+ {igd_plus:.3f} | IGD+ max "
+                    f"{igd_plus_max:.3f}"
+            )
+        logger.info(info_text)
 
 
 def log_episode_stats(

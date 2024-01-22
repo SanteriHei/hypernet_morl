@@ -311,6 +311,7 @@ class TrainingConfig:
     n_eval_episodes: int = 5
     n_eval_prefs: int = 1000
     ref_point: List[float] = MISSING
+    ref_set: List[List[float]] = MISSING
 
 
 @dataclass
@@ -351,6 +352,8 @@ class Config:
             "slurm_job_id": self.session_cfg.slurm_job_id,
             "slurm_array_task_id": self.session_cfg.slurm_array_task_id,
             # Training
+            "ref_point": self.training_cfg.ref_point,
+            "ref_set": self.training_cfg.ref_set,
             "env_id": self.training_cfg.env_id,
             "obs_dim": self.policy_cfg.obs_dim,
             "reward_dim": self.policy_cfg.reward_dim,
@@ -396,7 +399,7 @@ class Config:
             # Common stuff
             "seed": self.seed,
             "device": self.device,
-            "n_threads": 1 if "cuda" in self.device else self.n_threads,
+            "n_threads": self.n_threads,
         }
 
 

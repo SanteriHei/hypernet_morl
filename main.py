@@ -22,7 +22,6 @@ def main(cfg: omegaconf.DictConfig):
     print(omegaconf.OmegaConf.to_yaml(cfg, resolve=True))
     cfg = configs.as_structured_config(cfg)
     configs.validate(cfg)
-        
     set_global_rng_seed(cfg.seed)
     set_thread_count(cfg.device, cfg.n_threads)
 

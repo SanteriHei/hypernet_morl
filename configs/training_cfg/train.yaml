@@ -1,7 +1,7 @@
 defaults: 
   - base_training
 
-n_timesteps: 1000
+n_timesteps: 10_000
 n_random_steps: 500
 batch_size: 128
 buffer_capacity: 10_000
@@ -15,3 +15,4 @@ save_path: "test"
 ref_point: 
   - -100.0
   - -100.0
+ref_set: "${load_json:reference_sets/mo-hopper-v4.json}"

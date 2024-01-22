@@ -15,4 +15,4 @@ n_eval_prefs: 100
 ref_point:
   - -100.0
   - -100.0
-
+ref_set: "${load_json:reference_sets/mo-halfcheetah-v4.json}"
