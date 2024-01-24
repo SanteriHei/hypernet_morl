@@ -37,7 +37,8 @@ def train_agent(cfg: structured_configs.Config, agent):
         obs_dim=cfg.critic_cfg.obs_dim,
         reward_dim=cfg.critic_cfg.reward_dim,
         action_dim=cfg.policy_cfg.output_dim,
-        seed=cfg.seed,
+        device=agent.device,
+        seed=cfg.seed
     )
 
     # Only the "normal" sampler is using the angle, other samplers just ignore it
@@ -49,7 +50,7 @@ def train_agent(cfg: structured_configs.Config, agent):
         angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg),
     )
 
-    trained_agent, pareto_front_table, preference_table = _gym_training_loop(
+    trained_agent, pareto_front_table, preference_table, dynamic_net_params = _gym_training_loop(
         agent,
         training_cfg=cfg.training_cfg,
         replay_buffer=replay_buffer,
@@ -72,8 +73,16 @@ def train_agent(cfg: structured_configs.Config, agent):
 
         common.dump_json(save_dir_path / "preference_table.json", preference_table)
 
+        for obj in dynamic_net_params:
+            torch.save(
+                obj["params"],
+                save_dir_path / f"critic_net_params_{obj['global_step']}.tar"
+            )
+
+
     if wandb_run is not None:
         wandb_run.finish()
+
 
 
 def _gym_training_loop(
@@ -104,6 +113,13 @@ def _gym_training_loop(
     pareto_front_table = []
     # Store the used preferences & corresponding rewards
     preference_table = []
+
+    # Store the dynamic network weights
+    dynamic_net_params = []
+    static_pref = weight_sampler.sample(n_samples=1)
+    static_obs = obs.unsqueeze(0)
+    print(static_obs.shape)
+    print(static_pref.shape)
 
     # Create the preferences that are used later for evaluating the agent.
     eval_prefs = torch.tensor(
@@ -151,16 +167,27 @@ def _gym_training_loop(
             critic_loss, policy_loss = agent.update(batches)
 
             # Log metrics
-            if global_step % training_cfg.log_every_nth == 0:
+            if global_step % training_cfg.log_freq == 0:
                 log.log_losses(
                     {"critic": critic_loss.item(), "policy": policy_loss.item()},
                     global_step=global_step,
                     wandb_run=wandb_run,
                     logger=logger,
                 )
+        
+        # Store the parameters of the dynamic network
+        if (
+                training_cfg.save_dynamic_weights and
+                global_step % training_cfg.dynamic_net_save_freq == 0
+        ):
+            params = agent.get_critic_dynamic_params(static_obs, static_pref)
+            dynamic_net_params.append(
+                    {"global_step": global_step, "params": params}
+            )
+
 
         # Evaluate the current policy after some timesteps.
-        if global_step % training_cfg.eval_every_nth == 0:
+        if global_step % training_cfg.eval_freq == 0:
             eval_info = evaluation.eval_policy(
                 agent,
                 training_cfg.env_id,
@@ -168,11 +195,12 @@ def _gym_training_loop(
                 n_episodes=training_cfg.n_eval_episodes,
             )
             log.log_eval_info(
-                eval_info, global_step=global_step, wandb_run=wandb_run, logger=logger
+                eval_info, global_step=global_step,
+                wandb_run=wandb_run, logger=logger
             )
 
         # Similarly, we evaluate the policy on the evaluation preferences
-        if global_step % (training_cfg.eval_every_nth * 10) == 0:
+        if global_step % (training_cfg.eval_freq * 5) == 0:
             eval_data = [
                 evaluation.eval_policy(
                     agent,
@@ -270,9 +298,9 @@ def _gym_training_loop(
             fields={
                 "x": "avg_obj1",
                 "y": "avg_obj2",
-                "color": "step",
-                "tooltip_1": "std_obj1",
-                "tooltip_2": "std_obj2",
             },
+            string_fields={
+                "title": "Pareto-front",
+            }
         )
-    return agent, pareto_front_table, preference_table
+    return agent, pareto_front_table, preference_table, dynamic_net_params

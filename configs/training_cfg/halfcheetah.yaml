@@ -8,8 +8,8 @@ save_path: ???
 batch_size: 128
 buffer_capacity: 1_000_000
 angle_deg: 90
-eval_every_nth: 200
-log_every_nth: 100
+eval_freq: 500
+log_freq: 100
 n_eval_episodes: 5
 n_eval_prefs: 100
 ref_point:

@@ -1,6 +1,7 @@
 """ Define the hypernetwork model for the MSA-hyper """
 from __future__ import annotations
 
+import itertools
 import math
 import warnings
 from typing import Callable, Dict, Iterable, List, Literal, Tuple
@@ -70,14 +71,24 @@ class HeadNet(nn.Module):
         )
         self._target_output_dims.append(layer_features[0])
         self._target_input_dims.append(target_input_dim)
+        
+        i = 1
+        self._logger.debug(
+                f"Weight 0: {hidden_dim} -> {target_input_dim*layer_features[0]}"
+        )
+
+        self._logger.debug(
+                f"Bias&Scale 0: {hidden_dim} -> {layer_features[0]}"
+        )
 
         for in_dim, out_dim in common.iter_pairwise(layer_features):
             self._logger.debug(
-                f"Weight: Linear {hidden_dim} -> {out_dim*in_dim}"
+                f"Weight {i}: Linear {hidden_dim} -> {out_dim*in_dim}"
             )
             self._logger.debug(
-                f"bias, scale: Linear {hidden_dim} -> {out_dim}"
+                f"bias, scale {i}: Linear {hidden_dim} -> {out_dim}"
             )
+            i += 1
             self._weight_layers.append(
                 nn.Linear(hidden_dim, in_dim*out_dim)
             )
@@ -128,6 +139,7 @@ class HeadNet(nn.Module):
             The weights, biases and scales for each layer. The last n_outputs
             layers contain the parameters for the ouput layers.
         """
+        self._logger.debug(f"Input shape: {x.shape}")
         iter = zip(self._weight_layers, self._bias_layers, self._scale_layers)
         weights = []
         biases = []
@@ -156,16 +168,12 @@ class HeadNet(nn.Module):
             The initial standard deviations
         """
         if isinstance(init_stds, float):
-            tmp = (
-                init_stds for _ in range(len(self._bias_layers))
-            )
-            init_stds = tmp
+            init_stds = itertools.repeat(init_stds, len(self._bias_layers))
 
         iter = zip(
             init_stds, self._weight_layers, self._bias_layers, self._scale_layers
         )
 
-        self._logger.debug(f"Initializing using {init_method!r}")
         for std, weight_l, bias_l, scale_l in iter:
             if init_method == "uniform":
                 nn.init.uniform_(weight_l.weight, -std, std)
@@ -474,6 +482,7 @@ class HyperNet(nn.Module):
             obs_dim=cfg.obs_dim,
             embedding_layers=cfg.resblock_arch
         )
+        print(self._embeddeding)
 
         target_input_dim = self._get_target_input_dim()
 

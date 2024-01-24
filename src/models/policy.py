@@ -1,15 +1,15 @@
 """ Define the policy network"""
 from __future__ import annotations
 
-from typing import Tuple, Literal
+from typing import Literal, Tuple
 
 import numpy as np
 import torch
 from torch import nn
 
 from .. import structured_configs
-from . import hypernet as hn
 from ..utils import log, nets
+from . import hypernet as hn
 
 
 class GaussianPolicy(nn.Module):
@@ -34,16 +34,11 @@ class GaussianPolicy(nn.Module):
         self._logger = log.get_logger("models.gaussian_policy")
         self._cfg = cfg
 
-        # Do not apply activation function after the last layer
-        n_layers = len(cfg.layer_features)
-        apply_activation = tuple(i != n_layers - 1 for i in range(n_layers))
-
-        self._logger.debug("Creating a Latent policy...")
         self._latent_pi = nets.create_mlp(
             input_dim=cfg.reward_dim + cfg.obs_dim,
             layer_features=cfg.layer_features,
             activation_fn=cfg.activation_fn,
-            apply_activation=apply_activation,
+            apply_activation=True
         )
 
         self._logger.debug(
@@ -51,7 +46,9 @@ class GaussianPolicy(nn.Module):
         )
         self._mean_layer = nn.Linear(cfg.layer_features[-1], cfg.output_dim)
         self._log_std_layer = nn.Linear(cfg.layer_features[-1], cfg.output_dim)
-
+        
+        self._logger.debug(self._mean_layer)
+        self._logger.debug(self._log_std_layer)
         # for scaling the actions
         action_space_low = torch.as_tensor(cfg.action_space_low, dtype=torch.float32)
         action_space_high = torch.as_tensor(cfg.action_space_high, dtype=torch.float32)
@@ -212,16 +209,15 @@ class HyperPolicy(nn.Module):
         )
 
         target_input_dim = nets.get_network_input_dim(
-                [
-                    ("obs" in self._cfg.target_net_inputs, self._cfg.obs_dim),
-                    ("prefs" in self._cfg.target_net_inputs, self._cfg.reward_dim)
-
-                ]
-                # [
-                #     (self._cfg.target_use_obs, self._cfg.obs_dim),
-                #     (self._cfg.target_use_prefs, self._cfg.reward_dim)
-                # ]
-        ) 
+            [
+                ("obs" in self._cfg.target_net_inputs, self._cfg.obs_dim),
+                ("prefs" in self._cfg.target_net_inputs, self._cfg.reward_dim),
+            ]
+            # [
+            #     (self._cfg.target_use_obs, self._cfg.obs_dim),
+            #     (self._cfg.target_use_prefs, self._cfg.reward_dim)
+            # ]
+        )
         self._policy_head = hn.HeadNet(
             hidden_dim=cfg.hypernet_cfg.head_hidden_dim,
             layer_features=cfg.layer_features,
@@ -245,12 +241,8 @@ class HyperPolicy(nn.Module):
         )
 
         # for scaling the actions
-        action_space_low = torch.as_tensor(
-                cfg.action_space_low, dtype=torch.float32
-        )
-        action_space_high = torch.as_tensor(
-                cfg.action_space_high, dtype=torch.float32
-        )
+        action_space_low = torch.as_tensor(cfg.action_space_low, dtype=torch.float32)
+        action_space_high = torch.as_tensor(cfg.action_space_high, dtype=torch.float32)
 
         self.register_buffer(
             "_action_scale", (action_space_high - action_space_low) / 2.0
@@ -412,8 +404,10 @@ class HyperPolicy(nn.Module):
         return torch.tanh(mean) * self._action_scale + self._action_bias
 
     def _get_network_input(
-        self, network: Literal["hyper", "target"], 
-        obs: torch.Tensor, prefs: torch.Tensor
+        self,
+        network: Literal["hyper", "target"],
+        obs: torch.Tensor,
+        prefs: torch.Tensor,
     ) -> torch.Tensor:
         match network:
             case "hyper":
@@ -421,13 +415,19 @@ class HyperPolicy(nn.Module):
             case "target":
                 input_list = self._cfg.target_net_inputs
             case _:
-                raise ValueError((f"Unknown network {network!r}! network must "
-                                  "be one of 'hyper', 'target'"))
-        
+                raise ValueError(
+                    (
+                        f"Unknown network {network!r}! network must "
+                        "be one of 'hyper', 'target'"
+                    )
+                )
+
         if len(input_list) == 0:
             raise ValueError(
-                (f"Policy {network} must use atleast one of 'obs', 'prefs' as "
-                 "it's input!")
+                (
+                    f"Policy {network} must use atleast one of 'obs', 'prefs' as "
+                    "it's input!"
+                )
             )
 
         out = []
@@ -439,10 +439,8 @@ class HyperPolicy(nn.Module):
                 case "obs":
                     out.append(obs)
                 case _:
-                    raise ValueError(
-                            f"Unknown {network} input {network_input!r}"
-                    )
-        
+                    raise ValueError(f"Unknown {network} input {network_input!r}")
+
         return out[0] if len(out) == 1 else torch.cat(out, dim=-1)
         # if not use_obs and not use_prefs:
         #     raise ValueError(

@@ -275,9 +275,9 @@ class TrainingConfig:
             using standard Python logging facilities. Default True
         log_to_wandb: bool If set to True, data will be logged to wandb.
         Default True
-        eval_every_nth: int The frequency at which the trained policy is
+        eval_freq: int The frequency at which the trained policy is
             evaluated at. Default 100.
-        log_every_nth: int The frequency at which the metrics are logged.
+        log_freq: int The frequency at which the metrics are logged.
             Default 100.
         n_eval_episodes: int The amount of episodes to evaluate the policy for
             during each evaluation pass in the training
@@ -306,8 +306,14 @@ class TrainingConfig:
     save_path: str = MISSING
     log_to_stdout: bool = True
     log_to_wandb: bool = True
-    eval_every_nth: int = 100
-    log_every_nth: int = 100
+    eval_freq: int = 1000
+    log_freq: int = 100
+    save_dynamic_weights: bool = True
+    dynamic_net_save_freq: int = int(1e5)
+
+
+
+    # Evaluation parameters
     n_eval_episodes: int = 5
     n_eval_prefs: int = 1000
     ref_point: List[float] = MISSING

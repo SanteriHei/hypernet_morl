@@ -162,7 +162,7 @@ def target_network(
 
     assert callable(activation_fn), \
         f"Activation function is not callable! ({activation_fn})"
-
+    
     for w, b, scale, use_activation in iter:
         if out.ndim == 2:
             out = out.unsqueeze(2)

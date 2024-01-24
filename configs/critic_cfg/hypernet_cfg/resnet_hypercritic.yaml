@@ -14,8 +14,8 @@ embedding_layers:
     input_dim: "${sum:${....obs_dim}, ${....reward_dim}}"
     activation_fn: "relu"
     dropout_rates: 
-      - 0.3
-      - 0.3
+      - null
+      - null
     layer_features:
       - 256
       - 256
@@ -23,8 +23,8 @@ embedding_layers:
     input_dim: 256
     activation_fn: "relu"
     dropout_rates: 
-      - 0.2
-      - 0.2
+      - null
+      - null
     layer_features:
       - 512
       - 512
@@ -32,8 +32,8 @@ embedding_layers:
     input_dim: 512
     activation_fn: "relu"
     dropout_rates: 
-      - 0.1
-      - 0.1
+      - null
+      - null
     layer_features: 
       - 1024
       - 1024

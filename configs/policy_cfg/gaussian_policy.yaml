@@ -12,6 +12,5 @@ action_space_high: "${env.action_space_high:${..training_cfg.env_id}}"
 layer_features: 
   - 256
   - 256
-  - 256
 
 hypernet_cfg: null

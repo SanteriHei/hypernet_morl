@@ -22,7 +22,7 @@ loggers:
   train:
     handlers:
       - console
-    level: DEBUG
+    level: INFO
     propagate: False
   utils.nets:
     handlers: 
@@ -32,7 +32,7 @@ loggers:
   models.msa_hyper:
     handlers: 
       - console
-    level: INFO 
+    level: INFO
     propagate: False
   models.gaussian_policy:
     handlers: 

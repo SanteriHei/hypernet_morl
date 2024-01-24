@@ -3,7 +3,7 @@
 import dataclasses
 import itertools
 import pathlib
-from typing import Tuple, List
+from typing import List, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -130,6 +130,18 @@ class MSAHyper:
             "config": dataclasses.asdict(self._cfg),
         }
         torch.save(state, dir_path / "msa_hyper.tar")
+
+
+    @torch.no_grad
+    def get_critic_dynamic_params(
+            self, obs: torch.Tensor, prefs: torch.Tensor
+    ):
+        outputs = {}
+        for i, critic in enumerate(self._critics):
+            params = critic.get_dynamic_net_params(obs, prefs)
+            outputs[f"critic_{i}"] = params
+        return outputs
+
 
     @torch.no_grad
     def eval_action(self, obs: torch.Tensor, prefs: torch.Tensor) -> torch.Tensor:

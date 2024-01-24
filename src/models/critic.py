@@ -39,6 +39,8 @@ class HyperCritic(nn.Module):
             self._embedding = hn.Embedding(
                 embedding_layers=cfg.hypernet_cfg.embedding_layers
             )
+
+        self._logger.debug(self._embedding)
         
         target_input_dim = nets.get_network_input_dim(
                 [
@@ -64,9 +66,9 @@ class HyperCritic(nn.Module):
 
         # create mask, such that the activation function is not applied at the
         # latest layer
-        self._activation_mask = np.arange(
-                len(cfg.layer_dims)
-        ) < len(cfg.layer_dims) - 1
+        n_layers = len(cfg.layer_dims)
+        self._activation_mask = np.arange(n_layers + 1) < n_layers
+        self._logger.debug(f"Activation mask {self._activation_mask}")
 
     @property
     def config(self) -> structured_configs.CriticConfig:
@@ -109,6 +111,19 @@ class HyperCritic(nn.Module):
         )
         # Remove the singleton dimension
         return out.squeeze(2)
+
+
+    def get_dynamic_net_params(
+            self, obs: torch.Tensor, prefs: torch.Tensor
+    ):
+        z = self._embedding(torch.cat((obs, prefs), dim=-1))
+        weights, biases, scales = self._critic_head(z)
+        return [
+                {"weight": w, "bias": b, "scale": s}
+                for w, b, s in zip(weights, biases, scales)
+        ]
+
+
     def _get_target_input(
             self, obs: torch.Tensor, action: torch.Tensor, prefs: torch.Tensor
     ) -> torch.Tensor:
