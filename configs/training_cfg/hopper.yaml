@@ -1,7 +1,7 @@
 defaults:
   - base_training
 
-n_timesteps: 1_000_000
+n_timesteps: 1_200_000
 n_random_steps: 3000
 env_id: "mo-hopper-v4-fork"
 save_path: ???
@@ -15,4 +15,4 @@ n_eval_prefs: 100
 ref_point:
   - -100.0
   - -100.0
-ref_set: "${load_json:reference_sets/mo-hopper-v4.json}”
+ref_set: "${load_json:reference_sets/mo-hopper-v4.json}"

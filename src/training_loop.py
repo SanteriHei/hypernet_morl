@@ -118,8 +118,6 @@ def _gym_training_loop(
     dynamic_net_params = []
     static_pref = weight_sampler.sample(n_samples=1)
     static_obs = obs.unsqueeze(0)
-    print(static_obs.shape)
-    print(static_pref.shape)
 
     # Create the preferences that are used later for evaluating the agent.
     eval_prefs = torch.tensor(
