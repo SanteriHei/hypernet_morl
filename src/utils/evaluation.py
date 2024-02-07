@@ -86,11 +86,13 @@ def eval_policy(
         the average and standard deviation of returns (as vector),
         and the average and standard deviation of discounted returns (as vector)
     """
+    agent.set_mode(train_mode=False)
     gamma = agent.config.gamma
     evals = [
             eval_agent(agent, env_id, prefs, gamma=gamma)
             for _ in range(n_episodes)
     ]
+    agent.set_mode(train_mode=True)
 
     # Convert list of dicts into dict of lists
     evals = {key: [obj[key] for obj in evals] for key in evals[0].keys()}

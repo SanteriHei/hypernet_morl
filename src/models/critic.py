@@ -1,4 +1,5 @@
 """ Define different critic models for MORL """
+from typing import Dict, List
 
 import numpy as np
 import torch
@@ -11,37 +12,40 @@ from . import hypernet as hn
 
 class Critic(nn.Module):
 
-    """ Defines a critic network that approximates the state-action value 
-        Q(s,a, w): SxAxW -> R^d for multi-objective RL, where d is the 
-        reward space dimensionality
+    """Defines a critic network that approximates the state-action value
+    Q(s,a, w): SxAxW -> R^d for multi-objective RL, where d is the
+    reward space dimensionality
 
-        Parameters
-        ----------
-        cfg: structured_configs.CriticConfig
-            The configuration for the critic.
+    Parameters
+    ----------
+    cfg: structured_configs.CriticConfig
+        The configuration for the critic.
     """
-    def __init__(
-            self, cfg: structured_configs.CriticConfig
-    ):
+
+    def __init__(self, cfg: structured_configs.CriticConfig):
         super().__init__()
         self._logger = log.get_logger("models.hyper_critic")
         self._cfg = cfg
-        self._device = cfg.device if isinstance(cfg.device, torch.device) else torch.device(cfg.device)
+        self._device = (
+            cfg.device
+            if isinstance(cfg.device, torch.device)
+            else torch.device(cfg.device)
+        )
 
         self._logger.debug("Creating critic network...")
 
         target_input_dim = nets.get_network_input_dim(
-                [
-                    ("action" in self._cfg.target_net_inputs, self._cfg.action_dim),
-                    ("prefs" in self._cfg.target_net_inputs, self._cfg.action_dim),
-                    ("obs" in self._cfg.target_net_inputs, self._cfg.action_dim)
-                ]
+            [
+                ("action" in self._cfg.target_net_inputs, self._cfg.action_dim),
+                ("prefs" in self._cfg.target_net_inputs, self._cfg.action_dim),
+                ("obs" in self._cfg.target_net_inputs, self._cfg.action_dim),
+            ]
         )
         self._network = nets.create_mlp(
-                input_dim=target_input_dim,
-                layer_features=cfg.layer_dims,
-                activation_fn=cfg.activation_fn,
-                apply_activation=cfg.apply_activation
+            input_dim=target_input_dim,
+            layer_features=cfg.layer_dims,
+            activation_fn=cfg.activation_fn,
+            apply_activation=cfg.apply_activation,
         ).to(self._device)
 
     @property
@@ -54,7 +58,7 @@ class Critic(nn.Module):
         return self._cfg
 
     def forward(
-            self, obs: torch.Tensor, action: torch.Tensor, prefs: torch.Tensor
+        self, obs: torch.Tensor, action: torch.Tensor, prefs: torch.Tensor
     ) -> torch.Tensor:
         """Apply forward pass for the critic.
 
@@ -76,10 +80,7 @@ class Critic(nn.Module):
 
 
 class HyperCritic(nn.Module):
-
-    def __init__(
-            self, cfg: structured_configs.CriticConfig
-    ):
+    def __init__(self, cfg: structured_configs.CriticConfig):
         """Create a multi-objective critic network that utilizes a hypernetwork
         for generating it parameters.
 
@@ -95,11 +96,11 @@ class HyperCritic(nn.Module):
         self._logger.debug("Creating embedding...")
         if cfg.hypernet_type == "mlp":
             self._embedding = nets.create_mlp(
-                    input_dim=cfg.hypernet_cfg.input_dim,
-                    layer_features=cfg.hypernet_cfg.layer_features,
-                    activation_fn=cfg.hypernet_cfg.activation_fn,
-                    apply_activation=cfg.hypernet_cfg.apply_activation,
-                    dropout_rate=cfg.hypernet_cfg.dropout_rates
+                input_dim=cfg.hypernet_cfg.input_dim,
+                layer_features=cfg.hypernet_cfg.layer_features,
+                activation_fn=cfg.hypernet_cfg.activation_fn,
+                apply_activation=cfg.hypernet_cfg.apply_activation,
+                dropout_rate=cfg.hypernet_cfg.dropout_rates,
             )
         else:
             self._embedding = hn.Embedding(
@@ -107,17 +108,21 @@ class HyperCritic(nn.Module):
             )
 
         self._logger.debug(self._embedding)
-        
+
         target_input_dim = nets.get_network_input_dim(
-                [
-                    ("action" in self._cfg.target_net_inputs, self._cfg.action_dim),
-                    ("prefs" in self._cfg.target_net_inputs, self._cfg.reward_dim),
-                    ("obs" in self._cfg.target_net_inputs, self._cfg.obs_dim)
-                ]
+            [
+                ("action" in self._cfg.target_net_inputs, self._cfg.action_dim),
+                ("prefs" in self._cfg.target_net_inputs, self._cfg.reward_dim),
+                ("obs" in self._cfg.target_net_inputs, self._cfg.obs_dim),
+            ]
         )
         if target_input_dim == 0:
-            raise ValueError(("Atleast one of 'use_obs', 'use_action' and "
-                              "'use_prefs' must be True"))
+            raise ValueError(
+                (
+                    "Atleast one of 'use_obs', 'use_action' and "
+                    "'use_prefs' must be True"
+                )
+            )
 
         self._logger.debug("Creating the headnet...")
         self._critic_head = hn.HeadNet(
@@ -127,7 +132,7 @@ class HyperCritic(nn.Module):
             layer_features=cfg.layer_dims,
             n_outputs=1,
             init_method=cfg.hypernet_cfg.head_init_method,
-            init_stds=cfg.hypernet_cfg.head_init_stds
+            init_stds=cfg.hypernet_cfg.head_init_stds,
         )
 
         # create mask, such that the activation function is not applied at the
@@ -138,11 +143,11 @@ class HyperCritic(nn.Module):
 
     @property
     def config(self) -> structured_configs.CriticConfig:
-        ''' Get the configuration of the critic '''
+        """Get the configuration of the critic"""
         return self._cfg
 
     def forward(
-            self, obs: torch.Tensor, action: torch.Tensor, prefs: torch.Tensor
+        self, obs: torch.Tensor, action: torch.Tensor, prefs: torch.Tensor
     ) -> torch.Tensor:
         """Apply forward pass for the critic.
 
@@ -171,27 +176,44 @@ class HyperCritic(nn.Module):
         target_net_input = self._get_target_input(obs, action, prefs)
         self._logger.debug(f"Critic input shape {target_net_input.shape}")
         out = nets.target_network(
-            target_net_input, weights=weights, biases=biases,
-            scales=scales, apply_activation=self._activation_mask,
-            activation_fn=self._cfg.activation_fn
+            target_net_input,
+            weights=weights,
+            biases=biases,
+            scales=scales,
+            apply_activation=self._activation_mask,
+            activation_fn=self._cfg.activation_fn,
         )
         # Remove the singleton dimension
         return out.squeeze(2)
 
-
     def get_dynamic_net_params(
-            self, obs: torch.Tensor, prefs: torch.Tensor
-    ):
+        self, obs: torch.Tensor, prefs: torch.Tensor
+    ) -> List[Dict[str, torch.Tensor]]:
+        """Get the parameters generated for the dynamic network by
+        the hypernetwork.
+
+        Parameters
+        ----------
+        obs : torch.Tensor
+            The current observation.
+        prefs : torch.Tensor
+            The current preferences.
+
+        Returns
+        -------
+        List[Dict[str, torch.Tensor]]
+            The Weights, biases and scales generated for each layer 
+            of the dynamic network.
+        """
         z = self._embedding(torch.cat((obs, prefs), dim=-1))
         weights, biases, scales = self._critic_head(z)
         return [
-                {"weight": w, "bias": b, "scale": s}
-                for w, b, s in zip(weights, biases, scales)
+            {"weight": w, "bias": b, "scale": s}
+            for w, b, s in zip(weights, biases, scales)
         ]
 
-
     def _get_target_input(
-            self, obs: torch.Tensor, action: torch.Tensor, prefs: torch.Tensor
+        self, obs: torch.Tensor, action: torch.Tensor, prefs: torch.Tensor
     ) -> torch.Tensor:
         """Create the input for the target network based on the use
         configuration.

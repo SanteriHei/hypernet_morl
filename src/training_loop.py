@@ -3,6 +3,7 @@ import pathlib
 
 import gymnasium as gym
 import numpy as np
+import numpy.typing as npt
 import torch
 
 import wandb
@@ -43,7 +44,7 @@ def train_agent(cfg: structured_configs.Config, agent):
         reward_dim=cfg.critic_cfg.reward_dim,
         action_dim=cfg.policy_cfg.output_dim,
         device=agent.device,
-        seed=cfg.seed
+        seed=cfg.seed,
     )
 
     # Only the "normal" sampler is using the angle, other samplers just ignore it
@@ -55,7 +56,12 @@ def train_agent(cfg: structured_configs.Config, agent):
         angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg),
     )
 
-    trained_agent, pareto_front_table, preference_table, dynamic_net_params = _gym_training_loop(
+    (
+        trained_agent,
+        pareto_front_table,
+        preference_table,
+        dynamic_net_params,
+    ) = _gym_training_loop(
         agent,
         training_cfg=cfg.training_cfg,
         replay_buffer=replay_buffer,
@@ -81,13 +87,11 @@ def train_agent(cfg: structured_configs.Config, agent):
         for obj in dynamic_net_params:
             torch.save(
                 obj["params"],
-                save_dir_path / f"critic_net_params_{obj['global_step']}.tar"
+                save_dir_path / f"critic_net_params_{obj['global_step']}.tar",
             )
-
 
     if wandb_run is not None:
         wandb_run.finish()
-
 
 
 def _gym_training_loop(
@@ -121,8 +125,8 @@ def _gym_training_loop(
 
     # Store the dynamic network weights
     dynamic_net_params = []
-    static_pref = weight_sampler.sample(n_samples=1)
-    static_obs = obs.unsqueeze(0)
+    static_pref = _get_static_preference(reward_dim, device=training_cfg.device)
+    static_obs = _get_static_obs(training_cfg.env_id, device=training_cfg.device)
 
     # Create the preferences that are used later for evaluating the agent.
     eval_prefs = torch.tensor(
@@ -177,17 +181,14 @@ def _gym_training_loop(
                     wandb_run=wandb_run,
                     logger=logger,
                 )
-        
+
         # Store the parameters of the dynamic network
         if (
-                training_cfg.save_dynamic_weights and
-                global_step % training_cfg.dynamic_net_save_freq == 0
+            training_cfg.save_dynamic_weights
+            and global_step % training_cfg.dynamic_net_save_freq == 0
         ):
             params = agent.get_critic_dynamic_params(static_obs, static_pref)
-            dynamic_net_params.append(
-                    {"global_step": global_step, "params": params}
-            )
-
+            dynamic_net_params.append({"global_step": global_step, "params": params})
 
         # Evaluate the current policy after some timesteps.
         if global_step % training_cfg.eval_freq == 0:
@@ -198,8 +199,7 @@ def _gym_training_loop(
                 n_episodes=training_cfg.n_eval_episodes,
             )
             log.log_eval_info(
-                eval_info, global_step=global_step,
-                wandb_run=wandb_run, logger=logger
+                eval_info, global_step=global_step, wandb_run=wandb_run, logger=logger
             )
 
         # Similarly, we evaluate the policy on the evaluation preferences
@@ -304,6 +304,47 @@ def _gym_training_loop(
             },
             string_fields={
                 "title": "Pareto-front",
-            }
+            },
         )
     return agent, pareto_front_table, preference_table, dynamic_net_params
+
+
+def _get_static_preference(
+        pref_dim: int, device: torch.device | str
+) -> torch.Tensor:
+    """Get a static preference from the preference space
+    (NOTE: will ALWAYS be the same preference)
+
+    Parameters
+    ----------
+    pref_dim : int
+        The dimensionality of the preference space.
+    device: torch.device | str
+        The device where the results will be stored to.
+    Returns
+    -------
+    torch.Tensor
+        The static preference.
+    """
+    return torch.full((pref_dim, ), 1, dtype=torch.float32, device=device) / pref_dim
+
+def _get_static_obs(env_id: str, device: torch.device | str) -> torch.Tensor:
+    """Get a static observation from the observation space of the given 
+    environment. NOTE: The observation will be ALWAYS the same!
+
+    Parameters
+    ----------
+    env_id : str
+        The environment id.
+    device: torch.device | str
+        The device where the results will be stored to.
+
+    Returns
+    -------
+    npt.NDArray
+        The static obseration.
+    """
+    tmp_env = gym.make(env_id)
+    obs, info = tmp_env.reset(seed=4)
+    tmp_env.close()
+    return torch.from_numpy(obs).float().to(device)

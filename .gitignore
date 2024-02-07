@@ -163,6 +163,8 @@ cython_debug/
 .idea/
 
 
+# any artifacts
+media/*
 # Any of the slurm job scripts
 slurm_scripts/*
 # outputs from hydra / omegaconfg
