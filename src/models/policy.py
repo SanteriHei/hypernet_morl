@@ -442,19 +442,3 @@ class HyperPolicy(nn.Module):
                     raise ValueError(f"Unknown {network} input {network_input!r}")
 
         return out[0] if len(out) == 1 else torch.cat(out, dim=-1)
-        # if not use_obs and not use_prefs:
-        #     raise ValueError(
-        #         ("Atleast one of 'use_obs' and 'use_prefs' must be True")
-        #     )
-        # out = None
-
-        # if use_obs and use_prefs:
-        #     out = torch.cat((obs, prefs), dim=-1)
-        # elif use_obs:
-        #     out = obs
-        # elif use_prefs:
-        #     out = prefs
-        # else:
-        #     assert False, ("Unknown combination of prefs and obs "
-        #                    f"({use_prefs}, {use_obs})")
-        # return out

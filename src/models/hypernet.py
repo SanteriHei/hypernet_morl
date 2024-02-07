@@ -49,8 +49,8 @@ class HeadNet(nn.Module):
             The standard deviation(s) used in the initialization. Default 0.05
         """
 
-        # assert init_method in ("uniform", "normal"), \
-        #     f"Unknown init method {init_method!r}"
+        assert init_method in ("uniform", "normal"), \
+            f"Unknown init method {init_method!r}"
 
         super().__init__()
         self._logger = log.get_logger("hypernet.headnet")

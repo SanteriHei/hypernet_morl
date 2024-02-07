@@ -690,7 +690,7 @@ class ReplayBuffer:
         )
 
     def __len__(self) -> int:
-        """Return the current lenght of the buffer. If the buffer is full
+        """Return the current length of the buffer. If the buffer is full
         (i.e. one is overwriting previous entries), the length == capacity
 
 

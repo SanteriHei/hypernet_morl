@@ -88,6 +88,14 @@ class MSAHyper:
     def device(self) -> torch.device:
         """Get the currently used device"""
         return self._device
+    
+    @property
+    def critics(self) -> List[torch.nn.Module]:
+        return self._critics
+    
+    @property
+    def policy(self) -> torch.nn.Module:
+        return self._policy
 
     def save(self, dir_path: pathlib.Path | str):
         """Saves the current state of the MSA-hyper and its submodules.

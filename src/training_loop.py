@@ -26,6 +26,11 @@ def train_agent(cfg: structured_configs.Config, agent):
 
     if cfg.training_cfg.log_to_wandb:
         wandb_run = log.setup_wandb(cfg.session_cfg, cfg.summarize())
+
+        if cfg.training_cfg.log_gradients:
+            for critic in agent.critics:
+                wandb_run.watch(critic, log="gradients", log_freq=1000)
+            wandb_run.watch(cfg.policy, log="gradients", log_freq=1000)
     else:
         wandb_run = None
 

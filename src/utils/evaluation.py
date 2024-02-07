@@ -35,7 +35,7 @@ def eval_agent(
     th_obs = torch.tensor(obs).float().to(agent.device)
     
     done = False
-
+        
     np_prefs = prefs.detach().cpu().numpy()
     returns = np.zeros_like(np_prefs)
     discounted_returns = np.zeros_like(np_prefs)

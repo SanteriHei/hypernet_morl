@@ -273,7 +273,11 @@ class TrainingConfig:
         save_path: str The path where the results will be saved to.
         log_to_stdout: bool If set to True, data will be logged to stdout/stderr
             using standard Python logging facilities. Default True
-        log_to_wandb: bool If set to True, data will be logged to wandb.
+        log_to_wandb: bool If set to True, data will be logged to wandb. 
+            Default True
+        log_gradients: bool If set to True, the model gradients will be logged
+            to wandb. Note, has effect only if 'log_to_wandb' is True.
+            Default False
         Default True
         eval_freq: int The frequency at which the trained policy is
             evaluated at. Default 100.
@@ -306,6 +310,7 @@ class TrainingConfig:
     save_path: str = MISSING
     log_to_stdout: bool = True
     log_to_wandb: bool = True
+    log_gradients: bool = False
     eval_freq: int = 1000
     log_freq: int = 100
     save_dynamic_weights: bool = True
