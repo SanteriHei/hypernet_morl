@@ -9,6 +9,72 @@ from ..utils import log, nets
 from . import hypernet as hn
 
 
+class Critic(nn.Module):
+
+    """ Defines a critic network that approximates the state-action value 
+        Q(s,a, w): SxAxW -> R^d for multi-objective RL, where d is the 
+        reward space dimensionality
+
+        Parameters
+        ----------
+        cfg: structured_configs.CriticConfig
+            The configuration for the critic.
+    """
+    def __init__(
+            self, cfg: structured_configs.CriticConfig
+    ):
+        super().__init__()
+        self._logger = log.get_logger("models.hyper_critic")
+        self._cfg = cfg
+        self._device = cfg.device if isinstance(cfg.device, torch.device) else torch.device(cfg.device)
+
+        self._logger.debug("Creating critic network...")
+
+        target_input_dim = nets.get_network_input_dim(
+                [
+                    ("action" in self._cfg.target_net_inputs, self._cfg.action_dim),
+                    ("prefs" in self._cfg.target_net_inputs, self._cfg.action_dim),
+                    ("obs" in self._cfg.target_net_inputs, self._cfg.action_dim)
+                ]
+        )
+        self._network = nets.create_mlp(
+                input_dim=target_input_dim,
+                layer_features=cfg.layer_dims,
+                activation_fn=cfg.activation_fn,
+                apply_activation=cfg.apply_activation
+        ).to(self._device)
+
+    @property
+    def device(self) -> torch.device:
+        """Returns the device where the model is stored."""
+        return self._device
+
+    def config(self) -> structured_configs.CriticConfig:
+        """Get the configuration of the critic"""
+        return self._cfg
+
+    def forward(
+            self, obs: torch.Tensor, action: torch.Tensor, prefs: torch.Tensor
+    ) -> torch.Tensor:
+        """Apply forward pass for the critic.
+
+        Parameters
+        ----------
+        obs : torch.Tensor
+            The current observation.
+        action : torch.Tensor
+            The action taken by the actor.
+        prefs : torch.Tensor
+            The current preferences over the objectives.
+
+        Returns
+        -------
+        torch.Tensor
+            The estimated Q(s, a, w) value with shape (batch_dim, reward_dim)
+        """
+        return self._network(torch.cat((obs, action, prefs), dim=-1))
+
+
 class HyperCritic(nn.Module):
 
     def __init__(
