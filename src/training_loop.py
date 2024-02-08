@@ -1,9 +1,9 @@
 import logging
 import pathlib
+from typing import Dict, List, Tuple
 
 import gymnasium as gym
 import numpy as np
-import numpy.typing as npt
 import torch
 
 import wandb
@@ -58,8 +58,7 @@ def train_agent(cfg: structured_configs.Config, agent):
 
     (
         trained_agent,
-        pareto_front_table,
-        preference_table,
+        history_buffer,
         dynamic_net_params,
     ) = _gym_training_loop(
         agent,
@@ -77,12 +76,12 @@ def train_agent(cfg: structured_configs.Config, agent):
             logger.info(f"Saving trained model to {cfg.training_cfg.save_path}")
         trained_agent.save(cfg.training_cfg.save_path)
         save_dir_path = pathlib.Path(cfg.training_cfg.save_path)
-        common.dump_json(
-            save_dir_path / "pareto-front.json",
-            pareto_front_table,
-        )
 
-        common.dump_json(save_dir_path / "preference_table.json", preference_table)
+        pfront, non_dom_pfront = history_buffer.pareto_front_to_json()
+
+        common.dump_json(save_dir_path / "pareto-front.json", pfront)
+        common.dump_json(save_dir_path / "non_dom_pareto_front.json", non_dom_pfront)
+        history_buffer.save_history(save_dir_path / "history.npz")
 
         for obj in dynamic_net_params:
             torch.save(
@@ -118,15 +117,20 @@ def _gym_training_loop(
     num_episodes = 0
     reward_dim = env.get_wrapper_attr("reward_space").shape[0]
 
-    # Keep track of the pareto-front
-    pareto_front_table = []
-    # Store the used preferences & corresponding rewards
-    preference_table = []
+    # Keep track of the history of the agent
+    history_buffer = common.HistoryBuffer(
+            total_timesteps=training_cfg.n_timesteps,
+            eval_freq=training_cfg.eval_freq,
+            n_eval_prefs=training_cfg.n_eval_prefs,
+            obs_dim=env.observation_space.shape[0],
+            reward_dim=reward_dim,
+            action_dim=env.action_space.shape[0]
+    )
 
     # Store the dynamic network weights
     dynamic_net_params = []
-    static_pref = _get_static_preference(reward_dim, device=training_cfg.device)
-    static_obs = _get_static_obs(training_cfg.env_id, device=training_cfg.device)
+    static_pref = _get_static_preference(reward_dim, device=agent.device)
+    static_obs = _get_static_obs(training_cfg.env_id, device=agent.device)
 
     # Create the preferences that are used later for evaluating the agent.
     eval_prefs = torch.tensor(
@@ -155,15 +159,11 @@ def _gym_training_loop(
 
         next_obs, rewards, terminated, truncated, info = env.step(action)
         replay_buffer.append(obs, action, rewards, prefs, next_obs, terminated)
-
-        # Store the preference and the reward
-        obj = {"step": global_step, "episode": num_episodes}
-        prefs_list = prefs.tolist()
-        rewards_list = rewards.tolist()
-        for i, (pref, rew) in enumerate(zip(prefs_list, rewards_list)):
-            obj[f"pref_{i}"] = pref
-            obj[f"reward_{i}"] = rew
-        preference_table.append(obj)
+        
+        # Store the whole action history
+        history_buffer.append_step(
+                obs, action, rewards, prefs, next_obs, terminated, num_episodes
+        )
 
         # Update the agent
         if global_step > training_cfg.n_random_steps:
@@ -214,7 +214,7 @@ def _gym_training_loop(
                 for prefs in eval_prefs
             ]
 
-            current_front, current_stds = zip(
+            avg_returns, sd_returns = zip(
                 *map(
                     lambda elem: [
                         elem["avg_discounted_returns"],
@@ -223,44 +223,12 @@ def _gym_training_loop(
                     eval_data,
                 )
             )
-
-            # Filter the non-dominated elements
-            non_dominated_inds = pareto.get_non_pareto_dominated_inds(
-                current_front, remove_duplicates=True
+            history_buffer.append_avg_returns(
+                    avg_returns, sd_returns, global_step
             )
-            current_front = np.asarray(current_front)
-            current_stds = np.asarray(current_stds)
-            current_front = current_front[non_dominated_inds].tolist()
-            current_stds = current_stds[non_dominated_inds].tolist()
-            log.warn_if(
-                logger,
-                len(current_front) == 0,
-                (
-                    f"The pareto front is empty at episode {num_episodes} "
-                    f"(step {global_step})"
-                ),
-            )
-
-            # Store the current pareto front
-            for avg_disc_return, std_disc_return in zip(current_front, current_stds):
-                assert (n_elems := len(avg_disc_return)) == 2, (
-                    "Expected two elements in eval data, got " f"{n_elems} instead!"
-                )
-                assert (n_elems := len(std_disc_return)) == 2, (
-                    "Expected two elements in eval data, got " f"{n_elems} instead!"
-                )
-                pareto_front_table.append(
-                    {
-                        "global_step": global_step,
-                        "avg_disc_return_0": avg_disc_return[0],
-                        "avg_disc_return_1": avg_disc_return[1],
-                        "std_disc_return_0": std_disc_return[0],
-                        "std_disc_return_1": std_disc_return[1],
-                    }
-                )
 
             log.log_mo_metrics(
-                current_front=current_front,
+                current_front=avg_returns,
                 ref_point=training_cfg.ref_point,
                 reward_dim=reward_dim,
                 global_step=global_step,
@@ -282,36 +250,20 @@ def _gym_training_loop(
             obs, info = env.reset()
         else:
             obs = next_obs
-
+        
+    pfront, non_dom_pfront = history_buffer.pareto_front_to_json()
     # Finally, store the pareto-front to the wandb
     if wandb_run is not None:
-        # NOTE: bit sketchy to convert the dicts to a lists using values(),
-        # eventhough the order of the values is quaranteed to be correct in
-        # python 3.7+
-        pareto_data = list(map(lambda row: list(row.values()), pareto_front_table))
-        eval_table = wandb.Table(
-            columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2"],
-            data=pareto_data,
-        )
+        _log_pareto_front(pfront, non_dom_pfront, wandb_run)
 
-        wandb_run.log({"eval/pareto-front": eval_table})
-        wandb_run.plot_table(
-            vega_spec_name="santeriheiskanen/test",
-            data_table=eval_table,
-            fields={
-                "x": "avg_obj1",
-                "y": "avg_obj2",
-            },
-            string_fields={
-                "title": "Pareto-front",
-            },
-        )
-    return agent, pareto_front_table, preference_table, dynamic_net_params
+    return (
+        agent,
+        history_buffer,
+        dynamic_net_params,
+    )
 
 
-def _get_static_preference(
-        pref_dim: int, device: torch.device | str
-) -> torch.Tensor:
+def _get_static_preference(pref_dim: int, device: torch.device | str) -> torch.Tensor:
     """Get a static preference from the preference space
     (NOTE: will ALWAYS be the same preference)
 
@@ -326,10 +278,11 @@ def _get_static_preference(
     torch.Tensor
         The static preference.
     """
-    return torch.full((pref_dim, ), 1, dtype=torch.float32, device=device) / pref_dim
+    return torch.full((pref_dim,), 1, dtype=torch.float32, device=device) / pref_dim
+
 
 def _get_static_obs(env_id: str, device: torch.device | str) -> torch.Tensor:
-    """Get a static observation from the observation space of the given 
+    """Get a static observation from the observation space of the given
     environment. NOTE: The observation will be ALWAYS the same!
 
     Parameters
@@ -348,3 +301,110 @@ def _get_static_obs(env_id: str, device: torch.device | str) -> torch.Tensor:
     obs, info = tmp_env.reset(seed=4)
     tmp_env.close()
     return torch.from_numpy(obs).float().to(device)
+
+
+def _pfront_to_json(
+    pfront_table: List[Dict[str, List[float] | int]],
+) -> Tuple[
+        List[Dict[str, int | float]], List[Dict[str, int | float]]
+    ]:
+    """Convert the stored pareto-front table into json.
+
+    Parameters
+    ----------
+    pfront_table : List[Dict[str, List[float] | int]]
+        The pareto-data that should be converted.
+
+    Returns
+    -------
+    Tuple[List[Dict[str, int | float]], List[Dict[str, int | float]]]
+        The list containing all the points of pareto-front, and list that
+        contains only the non-dominated points for each iteration.
+    """
+    pfront = []
+    filtered_pfront = []
+    for obj in pfront_table:
+        front = np.asarray(obj["front"])
+        sds = np.asarray(obj["sd"])
+        step = obj["global_step"]
+
+        non_dominated_inds = pareto.get_non_pareto_dominated_inds(
+            front, remove_duplicates=True
+        )
+
+        filtered_points = front[non_dominated_inds]
+        filtered_sds = sds[non_dominated_inds]
+
+        for point, sd in zip(front, sds):
+            pfront.append(
+                {
+                    "global_step": step,
+                    "avg_disc_return_0": float(point[0]),
+                    "avg_disc_return_1": float(point[1]),
+                    "std_disc_return_0": float(sd[0]),
+                    "std_disc_return_1": float(sd[1]),
+                }
+            )
+
+        for point, sd in zip(filtered_points, filtered_sds):
+            filtered_pfront.append(
+                {
+                    "global_step": step,
+                    "avg_disc_return_0": float(point[0]),
+                    "avg_disc_return_1": float(point[1]),
+                    "std_disc_return_0": float(sd[0]),
+                    "std_disc_return_1": float(sd[1]),
+                }
+            )
+    return pfront, filtered_pfront
+
+
+def _log_pareto_front(
+    pfront_table: List[Dict[str, float | int]],
+    non_dom_pfront_table: List[Dict[str, float | int]],
+    wandb_run: log.WandbRun,
+):
+    """Logs the pareto-front to the W&B dashboard.
+
+    Parameters
+    ----------
+    pfront_table : List[Dict[str, float | int]]
+        The pareto-front data that contains all the points (incl. the dominated points)
+    non_dom_pfront_table : List[Dict[str, float | int]]
+        The pareto-front data that contains only the non-dominated points.
+    wandb_run : log.WandbRun
+        The wandb run used for logging.
+    """
+    # NOTE: bit sketchy to convert the dicts to a lists using values(),
+    # eventhough the order of the values is quaranteed to be correct in
+    # python 3.7+
+    pareto_data = list(
+            map(lambda row: list(row.values()), pfront_table)
+    )
+    non_dom_pareto_data = list(
+            map(lambda row: list(row.values()), non_dom_pfront_table)
+    )
+
+    pareto_table = wandb.Table(
+            columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2"],
+            data=pareto_data
+    )
+    non_dom_pareto_table = wandb.Table(
+            columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2"],
+            data=non_dom_pareto_data
+    )
+
+    wandb_run.log({"eval/pareto-front": pareto_table})
+    wandb_run.log({"eval/non-dom-pareto-front": non_dom_pareto_table})
+
+    wandb_run.plot_table(
+        vega_spec_name="santeriheiskanen/pareto-front/v3",
+        data_table=pareto_table,
+        fields={
+            "x": "avg_obj1",
+            "y": "avg_obj2",
+        },
+        string_fields={
+            "title": "Pareto-front",
+        }
+    )

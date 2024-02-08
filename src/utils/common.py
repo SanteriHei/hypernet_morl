@@ -1,12 +1,13 @@
 """ Some common utilities for the algorithms"""
 from __future__ import annotations
+from . import pareto
 
 import itertools
 import json
 import numbers
 import pathlib
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Literal
+from typing import Any, Iterable, Mapping, Literal, List, Dict, Tuple
 
 import numpy as np
 import numpy.typing as npt
@@ -528,6 +529,219 @@ class ReplaySample:
             next_obs=next_obs,
             dones=dones,
         )
+
+
+
+class HistoryBuffer:
+
+    def __init__(
+            self, *, 
+            total_timesteps: int, 
+            eval_freq: int, 
+            n_eval_prefs: int,
+            obs_dim: int, 
+            action_dim: int,
+            reward_dim: int,
+    ):
+        """Defines a buffer that contains all the visited states, taken 
+        actions, received rewards etc. Furthermore, stores all the evaluation
+        results of the policy.
+
+        Parameters
+        ----------
+        total_timesteps : int
+            The total amount of timesteps the algorithm is trained for.
+        eval_freq : int
+            The evaluation frequency for the policy
+        n_eval_prefs : int
+            The amount evaluation preferences used for evaluating the policy.j
+        obs_dim : int
+            The dimensionality of the environments observation space.
+        action_dim : int
+            The dimensionality of the environments action space.
+        reward_dim : int
+            The dimensionality of the reward space.
+        """
+        self._obs = np.empty((total_timesteps, obs_dim), dtype=np.float64)
+        self._next_obs = np.empty((total_timesteps, obs_dim), dtype=np.float64)
+        self._actions = np.empty((total_timesteps, action_dim), dtype=np.float64)
+        self._rewards = np.empty((total_timesteps, reward_dim), dtype=np.float64)
+        self._prefs = np.empty((total_timesteps, reward_dim), dtype=np.float64)
+        self._dones = np.empty((total_timesteps,), dtype=bool)
+        self._episodes = np.empty((total_timesteps,), dtype=np.uint64)
+
+        self._step_ptr = 0
+            
+        n_points = (total_timesteps // (eval_freq * 5)) * n_eval_prefs
+        self._avg_returns = np.empty((n_points, reward_dim), dtype=np.float64)
+        self._sd_returns = np.empty((n_points, reward_dim), dtype=np.float64)
+        self._global_step = np.empty((n_points,), dtype=np.uint64)
+        self._point_ptr = 0
+
+    def append_step(
+        self,
+        obs: torch.Tensor | npt.NDArray,
+        action: torch.Tensor | npt.NDArray,
+        rewards: torch.Tensor | npt.NDArray,
+        prefs: torch.Tensor | npt.NDArray,
+        next_obs: torch.Tensor | npt.NDArray,
+        done: bool,
+        episode: int
+    ): 
+        """Appends information from the taken step.j
+
+        Parameters
+        ----------
+        obs : torch.Tensor | npt.NDArray
+            The observation before taking the step.
+        action : torch.Tensor | npt.NDArray
+            The action taken from the observation.
+        rewards : torch.Tensor | npt.NDArray
+            The received reward from the action.
+        prefs : torch.Tensor | npt.NDArray
+            The preferences used when taking the action.
+        next_obs : torch.Tensor | npt.NDArray
+            The next observation after the action.
+        done : bool
+            Indicating if the episode ended or not.
+        episode : int
+            The episode during which the step was taken.
+        """
+        if isinstance(obs, torch.Tensor):
+            obs = obs.cpu().numpy()
+        if isinstance(action, torch.Tensor):
+            action = action.cpu().numpy()
+        if isinstance(rewards, torch.Tensor):
+            rewards = rewards.cpu().numpy()
+        if isinstance(prefs, torch.Tensor):
+            prefs = prefs.cpu().numpy()
+        if isinstance(next_obs, torch.Tensor):
+            next_obs = next_obs.cpu().numpy()
+
+
+        self._obs[self._step_ptr, ...] = obs
+        self._actions[self._step_ptr, ...] = action
+        self._prefs[self._step_ptr, ...] = prefs
+        self._rewards[self._step_ptr, ...] = rewards
+        self._next_obs[self._step_ptr, ...] = next_obs
+        self._dones[self._step_ptr] = done
+        self._episodes[self._step_ptr] = episode
+        self._step_ptr += 1
+
+    def append_avg_returns(
+            self, avg_returns: List[float], sd_returns: List[float], step: int
+    ):
+
+        """Append new average returns from the evaluation of the agent.
+
+        Parameters
+        ----------
+        avg_returns : List[float]
+            The average returns from the evaluation.
+        sd_returns : List[float]
+            The standard deviations of the returns from the evaluation.
+        step : int
+            The step at which the agent was evaluated.
+        """
+        avg_returns = np.asarray(avg_returns)
+        sd_returns = np.asarray(sd_returns)
+        end_idx = self._point_ptr + avg_returns.shape[0]
+        assert end_idx <= self._sd_returns.shape[0], ("Overindexing! has store for "
+                                              f"{self._sd_returns.shape[0]} points, "
+                                              f"tried to fit {end_idx} "
+                                              "points instead!")
+        
+        print(f"Set from {self._point_ptr} to {end_idx}. New pointer {end_idx}")
+        self._avg_returns[self._point_ptr:end_idx, :] = avg_returns
+        self._sd_returns[self._point_ptr:end_idx, :] = sd_returns
+        self._global_step[self._point_ptr:end_idx]  = step
+        self._point_ptr = end_idx
+        print(f"Updated pointer to {self._point_ptr}")
+    
+    def save_history(self, save_path: str | pathlib.Path):
+        """Saves the step history.
+
+        Parameters
+        ----------
+        save_path : str | pathlib.Path
+            The path to which the data will be saved to. Should point to a 
+            .npz file.
+        """
+        save_path = pathlib.Path(save_path)
+
+        if save_path.exists() or save_path.is_file():
+            raise FileExistsError(f"{str(save_path)!r} alread exists!")
+        np.savez(save_path, obs=self._obs, actions=self._actions,
+                 prefs=self._prefs, rewards=self._rewards, 
+                 next_obs=self._next_obs, dones=self._dones,
+                 episodes=self._episodes
+        )
+
+    def pareto_front_to_json(self) -> Tuple[
+            List[Dict[str, float | int]], List[Dict[str, float | int]]
+    ]:
+        """Convert the pareto-front data into json format.
+
+        Returns
+        -------
+        Tuple[List[Dict[str, float | int]], List[Dict[str, float | int]]]
+              Returns the pareto-front data in json. First returned value
+              contains all the points, while the second contains only the
+              non-dominated points.
+        """
+        # Convert the pareto-front to json compliant form
+        
+        def _pfront_to_json(returns, return_sds, steps):
+            out = []
+            for i in range(returns.shape[0]):
+                return_dct = {
+                        f"avg_disc_return_{j}": float(returns[i, j])
+                        for j in range(returns.shape[1])
+                }
+                return_sd_dct = {
+                        f"std_disc_return_{j}": float(return_sds[i, j])
+                        for j in range(return_sds.shape[1])
+                }
+                return_dct.update(return_sd_dct)
+                return_dct.update({"global_step": int(steps[i])})
+                out.append(return_dct)
+            return out
+
+        
+        pareto_front = []
+        non_dom_pareto_front = []
+        #  First, find the values where the global steps change.
+        idx = np.where(np.diff(self._global_step) != 0)[0] + 1
+
+        idx = np.concatenate(
+                (np.asarray([0]), idx, np.asarray([self._global_step.shape[0]])),
+                axis=0
+        )
+        for i in range(idx.shape[0]-1):
+
+            start_idx = idx[i]
+            end_idx = idx[i+1]
+            avg_returns = self._avg_returns[start_idx:end_idx]
+            return_sds = self._sd_returns[start_idx:end_idx]
+            global_steps = self._global_step[start_idx:end_idx]
+
+            # Store the unfiltered pareto-front
+            json_pfront = _pfront_to_json(avg_returns, return_sds, global_steps)
+            pareto_front.extend(json_pfront)
+
+            # Store the pareto-front containing only the non-dominated 
+            # indices
+            non_dom_inds = pareto.get_non_pareto_dominated_inds(
+                    avg_returns, remove_duplicates=True
+            )
+            non_dom_avg_returns = avg_returns[non_dom_inds, :]
+            non_dom_return_sds = return_sds[non_dom_inds, :]
+            non_dom_steps = global_steps[non_dom_inds]
+            json_non_dom_pfront = _pfront_to_json(
+                    non_dom_avg_returns, non_dom_return_sds, non_dom_steps
+            )
+            non_dom_pareto_front.extend(json_non_dom_pfront)
+        return pareto_front, non_dom_pareto_front
 
 
 class ReplayBuffer:
