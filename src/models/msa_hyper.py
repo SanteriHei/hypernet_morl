@@ -110,7 +110,7 @@ class MSAHyper:
         for critic in self._critics:
             critic.train(mode=train_mode)
 
-    def save(self, dir_path: pathlib.Path | str):
+    def save(self, save_path: pathlib.Path | str):
         """Saves the current state of the MSA-hyper and its submodules.
 
         Parameters
@@ -118,8 +118,7 @@ class MSAHyper:
         dir_path : pathlib.Path | str
             The path to the directory where the model will be saved to.
         """
-        dir_path = pathlib.Path(dir_path)
-        dir_path.mkdir(parents=True, exist_ok=True)
+        save_path = pathlib.Path(save_path)
 
         state = {}
         # NOTE: Will likely fail if the config is actually duck-typed
@@ -150,7 +149,7 @@ class MSAHyper:
             "critic_optim": self._critic_optim.state_dict(),
             "config": dataclasses.asdict(self._cfg),
         }
-        torch.save(state, dir_path / "msa_hyper.tar")
+        torch.save(state, save_path)
 
 
     @torch.no_grad

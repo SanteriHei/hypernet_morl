@@ -56,6 +56,10 @@ def train_agent(cfg: structured_configs.Config, agent):
         angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg),
     )
 
+    # Ensure that the saving directory exists
+    save_dir = pathlib.Path(cfg.training_cfg.save_path)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
     (
         trained_agent,
         history_buffer,
@@ -72,11 +76,14 @@ def train_agent(cfg: structured_configs.Config, agent):
     )
 
     if cfg.training_cfg.save_path is not None:
+
+        save_dir_path = pathlib.Path(cfg.training_cfg.save_path)
+    
+        model_path = save_dir_path / "msa_hyper_final.tar"
         if logger is not None:
             logger.info(f"Saving trained model to {cfg.training_cfg.save_path}")
-        trained_agent.save(cfg.training_cfg.save_path)
-        save_dir_path = pathlib.Path(cfg.training_cfg.save_path)
 
+        trained_agent.save(model_path)
         pfront, non_dom_pfront = history_buffer.pareto_front_to_json()
 
         common.dump_json(save_dir_path / "pareto-front.json", pfront)
@@ -119,12 +126,12 @@ def _gym_training_loop(
 
     # Keep track of the history of the agent
     history_buffer = common.HistoryBuffer(
-            total_timesteps=training_cfg.n_timesteps,
-            eval_freq=training_cfg.eval_freq,
-            n_eval_prefs=training_cfg.n_eval_prefs,
-            obs_dim=env.observation_space.shape[0],
-            reward_dim=reward_dim,
-            action_dim=env.action_space.shape[0]
+        total_timesteps=training_cfg.n_timesteps,
+        eval_freq=training_cfg.eval_freq,
+        n_eval_prefs=training_cfg.n_eval_prefs,
+        obs_dim=env.observation_space.shape[0],
+        reward_dim=reward_dim,
+        action_dim=env.action_space.shape[0],
     )
 
     # Store the dynamic network weights
@@ -159,13 +166,13 @@ def _gym_training_loop(
 
         next_obs, rewards, terminated, truncated, info = env.step(action)
         replay_buffer.append(obs, action, rewards, prefs, next_obs, terminated)
-        
+
         # Store the whole action history
         history_buffer.append_step(
-                obs, action, rewards, prefs, next_obs, terminated, num_episodes
+            obs, action, rewards, prefs, next_obs, terminated, num_episodes
         )
 
-        # Update the agent
+        #  === Update the agent ===
         if global_step > training_cfg.n_random_steps:
             batches = [
                 replay_buffer.sample(training_cfg.batch_size)
@@ -182,7 +189,7 @@ def _gym_training_loop(
                     logger=logger,
                 )
 
-        # Store the parameters of the dynamic network
+        #  === Store the parameters of the dynamic network ===
         if (
             training_cfg.save_dynamic_weights
             and global_step % training_cfg.dynamic_net_save_freq == 0
@@ -190,7 +197,7 @@ def _gym_training_loop(
             params = agent.get_critic_dynamic_params(static_obs, static_pref)
             dynamic_net_params.append({"global_step": global_step, "params": params})
 
-        # Evaluate the current policy after some timesteps.
+        #  === Evaluate the current policy ===
         if global_step % training_cfg.eval_freq == 0:
             eval_info = evaluation.eval_policy(
                 agent,
@@ -202,7 +209,7 @@ def _gym_training_loop(
                 eval_info, global_step=global_step, wandb_run=wandb_run, logger=logger
             )
 
-        # Similarly, we evaluate the policy on the evaluation preferences
+        # === evaluate the policy on the evaluation preferences ===
         if global_step % (training_cfg.eval_freq * 5) == 0:
             eval_data = [
                 evaluation.eval_policy(
@@ -223,9 +230,7 @@ def _gym_training_loop(
                     eval_data,
                 )
             )
-            history_buffer.append_avg_returns(
-                    avg_returns, sd_returns, global_step
-            )
+            history_buffer.append_avg_returns(avg_returns, sd_returns, global_step)
 
             log.log_mo_metrics(
                 current_front=avg_returns,
@@ -236,6 +241,17 @@ def _gym_training_loop(
                 wandb_run=wandb_run,
                 logger=logger,
             )
+
+        # === Store a model checkpoint ===
+        if (
+            training_cfg.save_path is not None
+            and global_step % training_cfg.model_save_freq == 0
+            and global_step > 0
+        ):
+
+            if logger is not None:
+                logger.info(f"Saving model at {global_step}")
+            agent.save(training_cfg / f"msa_hyper_{global_step}.tar")
 
         if terminated or truncated:
             num_episodes += 1
@@ -250,7 +266,7 @@ def _gym_training_loop(
             obs, info = env.reset()
         else:
             obs = next_obs
-        
+
     pfront, non_dom_pfront = history_buffer.pareto_front_to_json()
     # Finally, store the pareto-front to the wandb
     if wandb_run is not None:
@@ -275,7 +291,15 @@ def _get_static_preference(pref_dim: int, device: torch.device | str) -> torch.T
         The device where the results will be stored to.
     Returns
     -------
-    torch.Tensor
+    torch.Tensorvg_disc_return_0': 1.0,
+  'avg_disc_return_1': 1.0,
+  'std_disc_return_0': 1.0,
+  'std_disc_return_1': 1.0,
+  'global_step': 2},
+ {'avg_disc_return_0': 1.0,
+  'avg_disc_return_1': 1.0,
+  'std_disc_return_0': 1.0,
+  'std_disc_return_1
         The static preference.
     """
     return torch.full((pref_dim,), 1, dtype=torch.float32, device=device) / pref_dim
@@ -305,9 +329,7 @@ def _get_static_obs(env_id: str, device: torch.device | str) -> torch.Tensor:
 
 def _pfront_to_json(
     pfront_table: List[Dict[str, List[float] | int]],
-) -> Tuple[
-        List[Dict[str, int | float]], List[Dict[str, int | float]]
-    ]:
+) -> Tuple[List[Dict[str, int | float]], List[Dict[str, int | float]]]:
     """Convert the stored pareto-front table into json.
 
     Parameters
@@ -375,23 +397,26 @@ def _log_pareto_front(
     wandb_run : log.WandbRun
         The wandb run used for logging.
     """
-    # NOTE: bit sketchy to convert the dicts to a lists using values(),
-    # eventhough the order of the values is quaranteed to be correct in
-    # python 3.7+
-    pareto_data = list(
-            map(lambda row: list(row.values()), pfront_table)
-    )
-    non_dom_pareto_data = list(
-            map(lambda row: list(row.values()), non_dom_pfront_table)
-    )
+
+    def _row_to_list(row):
+        return [
+                row["global_step"],
+                row["avg_disc_return_0"], 
+                row["avg_disc_return_1"],
+                row["std_disc_return_0"],
+                row["std_disc_return_1"]
+        ]
+
+    pareto_data = list(map(_row_to_list, pfront_table))
+    non_dom_pareto_data = list(map(_row_to_list, non_dom_pfront_table))
 
     pareto_table = wandb.Table(
-            columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2"],
-            data=pareto_data
+        columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2"],
+        data=pareto_data,
     )
     non_dom_pareto_table = wandb.Table(
-            columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2"],
-            data=non_dom_pareto_data
+        columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2"],
+        data=non_dom_pareto_data,
     )
 
     wandb_run.log({"eval/pareto-front": pareto_table})
@@ -406,5 +431,5 @@ def _log_pareto_front(
         },
         string_fields={
             "title": "Pareto-front",
-        }
+        },
     )

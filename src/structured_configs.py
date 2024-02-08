@@ -313,9 +313,9 @@ class TrainingConfig:
     log_gradients: bool = False
     eval_freq: int = 1000
     log_freq: int = 100
+    model_save_freq: int = int(1e5)
     save_dynamic_weights: bool = True
     dynamic_net_save_freq: int = int(1e5)
-
 
 
     # Evaluation parameters

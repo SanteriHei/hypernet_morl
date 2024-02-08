@@ -1,19 +1,21 @@
 """ Some common utilities for the algorithms"""
 from __future__ import annotations
-from . import pareto
 
 import itertools
 import json
 import numbers
 import pathlib
+import warnings
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Literal, List, Dict, Tuple
+from typing import Any, Dict, Iterable, List, Literal, Mapping, Tuple
 
 import numpy as np
 import numpy.typing as npt
 import pymoo.util.ref_dirs
 import torch
 from ruamel.yaml import YAML
+
+from . import pareto
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -121,6 +123,7 @@ def get_preference_sampler(
 def set_thread_count(device: str | torch.device, n_threads: int):
     if (isinstance(device, torch.device) and device.type == "cpu") or device == "cpu":
         torch.set_num_threads(n_threads)
+
 
 def set_global_rng_seed(seed: int):
     """Fix the seed for Pytorch's and Numpy's global random generators.
@@ -338,22 +341,21 @@ class UniformSampler:
             The sampled preferences.
         """
 
-        # If one is using only two rewards, just sample the single weight 
-        # from a uniform distribution, and calculate the second preference 
+        # If one is using only two rewards, just sample the single weight
+        # from a uniform distribution, and calculate the second preference
         # based on that.
         if self._reward_dim == 2:
             pref_0 = torch.rand(
-                    size=(n_samples, 1),
-                    device=self._device,
-                    dtype=torch.float32
+                size=(n_samples, 1), device=self._device, dtype=torch.float32
             )
             pref_1 = 1 - pref_0
             prefs = torch.concat((pref_0, pref_1), axis=-1)
-            assert ((prefs.sum() - 1).abs() < 1e-7).all(),\
-                    f"Not all prefs sum to one: ({prefs.sum(axis=-1).min()}, {prefs.sum(axis=-1).max()})"
+            assert (
+                (prefs.sum() - 1).abs() < 1e-7
+            ).all(), f"Not all prefs sum to one: ({prefs.sum(axis=-1).min()}, {prefs.sum(axis=-1).max()})"
             return prefs
             # return torch.concat((pref_0, pref_1), axis=-1)
-        
+
         # Otherwise, just sample the preferences from the uniform distribution
         # and normalize them.
         prefs = torch.rand(
@@ -531,19 +533,18 @@ class ReplaySample:
         )
 
 
-
 class HistoryBuffer:
-
     def __init__(
-            self, *, 
-            total_timesteps: int, 
-            eval_freq: int, 
-            n_eval_prefs: int,
-            obs_dim: int, 
-            action_dim: int,
-            reward_dim: int,
+        self,
+        *,
+        total_timesteps: int,
+        eval_freq: int,
+        n_eval_prefs: int,
+        obs_dim: int,
+        action_dim: int,
+        reward_dim: int,
     ):
-        """Defines a buffer that contains all the visited states, taken 
+        """Defines a buffer that contains all the visited states, taken
         actions, received rewards etc. Furthermore, stores all the evaluation
         results of the policy.
 
@@ -571,7 +572,7 @@ class HistoryBuffer:
         self._episodes = np.empty((total_timesteps,), dtype=np.uint64)
 
         self._step_ptr = 0
-            
+
         n_points = (total_timesteps // (eval_freq * 5)) * n_eval_prefs
         self._avg_returns = np.empty((n_points, reward_dim), dtype=np.float64)
         self._sd_returns = np.empty((n_points, reward_dim), dtype=np.float64)
@@ -586,8 +587,8 @@ class HistoryBuffer:
         prefs: torch.Tensor | npt.NDArray,
         next_obs: torch.Tensor | npt.NDArray,
         done: bool,
-        episode: int
-    ): 
+        episode: int,
+    ):
         """Appends information from the taken step.j
 
         Parameters
@@ -618,7 +619,6 @@ class HistoryBuffer:
         if isinstance(next_obs, torch.Tensor):
             next_obs = next_obs.cpu().numpy()
 
-
         self._obs[self._step_ptr, ...] = obs
         self._actions[self._step_ptr, ...] = action
         self._prefs[self._step_ptr, ...] = prefs
@@ -629,9 +629,8 @@ class HistoryBuffer:
         self._step_ptr += 1
 
     def append_avg_returns(
-            self, avg_returns: List[float], sd_returns: List[float], step: int
+        self, avg_returns: List[float], sd_returns: List[float], step: int
     ):
-
         """Append new average returns from the evaluation of the agent.
 
         Parameters
@@ -646,40 +645,47 @@ class HistoryBuffer:
         avg_returns = np.asarray(avg_returns)
         sd_returns = np.asarray(sd_returns)
         end_idx = self._point_ptr + avg_returns.shape[0]
-        assert end_idx <= self._sd_returns.shape[0], ("Overindexing! has store for "
-                                              f"{self._sd_returns.shape[0]} points, "
-                                              f"tried to fit {end_idx} "
-                                              "points instead!")
-        
+        assert end_idx <= self._sd_returns.shape[0], (
+            "Overindexing! has store for "
+            f"{self._sd_returns.shape[0]} points, "
+            f"tried to fit {end_idx} "
+            "points instead!"
+        )
+
         print(f"Set from {self._point_ptr} to {end_idx}. New pointer {end_idx}")
-        self._avg_returns[self._point_ptr:end_idx, :] = avg_returns
-        self._sd_returns[self._point_ptr:end_idx, :] = sd_returns
-        self._global_step[self._point_ptr:end_idx]  = step
+        self._avg_returns[self._point_ptr : end_idx, :] = avg_returns
+        self._sd_returns[self._point_ptr : end_idx, :] = sd_returns
+        self._global_step[self._point_ptr : end_idx] = step
         self._point_ptr = end_idx
         print(f"Updated pointer to {self._point_ptr}")
-    
+
     def save_history(self, save_path: str | pathlib.Path):
         """Saves the step history.
 
         Parameters
         ----------
         save_path : str | pathlib.Path
-            The path to which the data will be saved to. Should point to a 
+            The path to which the data will be saved to. Should point to a
             .npz file.
         """
         save_path = pathlib.Path(save_path)
 
         if save_path.exists() or save_path.is_file():
-            raise FileExistsError(f"{str(save_path)!r} alread exists!")
-        np.savez(save_path, obs=self._obs, actions=self._actions,
-                 prefs=self._prefs, rewards=self._rewards, 
-                 next_obs=self._next_obs, dones=self._dones,
-                 episodes=self._episodes
+            warnings.warn(f"{str(save_path)} Already exists! Overriding it...")
+        np.savez(
+            save_path,
+            obs=self._obs,
+            actions=self._actions,
+            prefs=self._prefs,
+            rewards=self._rewards,
+            next_obs=self._next_obs,
+            dones=self._dones,
+            episodes=self._episodes,
         )
 
-    def pareto_front_to_json(self) -> Tuple[
-            List[Dict[str, float | int]], List[Dict[str, float | int]]
-    ]:
+    def pareto_front_to_json(
+        self,
+    ) -> Tuple[List[Dict[str, float | int]], List[Dict[str, float | int]]]:
         """Convert the pareto-front data into json format.
 
         Returns
@@ -690,37 +696,34 @@ class HistoryBuffer:
               non-dominated points.
         """
         # Convert the pareto-front to json compliant form
-        
+
         def _pfront_to_json(returns, return_sds, steps):
             out = []
             for i in range(returns.shape[0]):
                 return_dct = {
-                        f"avg_disc_return_{j}": float(returns[i, j])
-                        for j in range(returns.shape[1])
+                    f"avg_disc_return_{j}": float(returns[i, j])
+                    for j in range(returns.shape[1])
                 }
                 return_sd_dct = {
-                        f"std_disc_return_{j}": float(return_sds[i, j])
-                        for j in range(return_sds.shape[1])
+                    f"std_disc_return_{j}": float(return_sds[i, j])
+                    for j in range(return_sds.shape[1])
                 }
                 return_dct.update(return_sd_dct)
                 return_dct.update({"global_step": int(steps[i])})
                 out.append(return_dct)
             return out
 
-        
         pareto_front = []
         non_dom_pareto_front = []
         #  First, find the values where the global steps change.
         idx = np.where(np.diff(self._global_step) != 0)[0] + 1
 
         idx = np.concatenate(
-                (np.asarray([0]), idx, np.asarray([self._global_step.shape[0]])),
-                axis=0
+            (np.asarray([0]), idx, np.asarray([self._global_step.shape[0]])), axis=0
         )
-        for i in range(idx.shape[0]-1):
-
+        for i in range(idx.shape[0] - 1):
             start_idx = idx[i]
-            end_idx = idx[i+1]
+            end_idx = idx[i + 1]
             avg_returns = self._avg_returns[start_idx:end_idx]
             return_sds = self._sd_returns[start_idx:end_idx]
             global_steps = self._global_step[start_idx:end_idx]
@@ -729,16 +732,16 @@ class HistoryBuffer:
             json_pfront = _pfront_to_json(avg_returns, return_sds, global_steps)
             pareto_front.extend(json_pfront)
 
-            # Store the pareto-front containing only the non-dominated 
+            # Store the pareto-front containing only the non-dominated
             # indices
             non_dom_inds = pareto.get_non_pareto_dominated_inds(
-                    avg_returns, remove_duplicates=True
+                avg_returns, remove_duplicates=True
             )
             non_dom_avg_returns = avg_returns[non_dom_inds, :]
             non_dom_return_sds = return_sds[non_dom_inds, :]
             non_dom_steps = global_steps[non_dom_inds]
             json_non_dom_pfront = _pfront_to_json(
-                    non_dom_avg_returns, non_dom_return_sds, non_dom_steps
+                non_dom_avg_returns, non_dom_return_sds, non_dom_steps
             )
             non_dom_pareto_front.extend(json_non_dom_pfront)
         return pareto_front, non_dom_pareto_front
