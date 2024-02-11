@@ -251,7 +251,7 @@ def _gym_training_loop(
 
             if logger is not None:
                 logger.info(f"Saving model at {global_step}")
-            agent.save(training_cfg / f"msa_hyper_{global_step}.tar")
+            agent.save(training_cfg.save_path / f"msa_hyper_{global_step}.tar")
 
         if terminated or truncated:
             num_episodes += 1
