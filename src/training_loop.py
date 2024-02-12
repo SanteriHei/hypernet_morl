@@ -251,7 +251,8 @@ def _gym_training_loop(
 
             if logger is not None:
                 logger.info(f"Saving model at {global_step}")
-            agent.save(training_cfg.save_path / f"msa_hyper_{global_step}.tar")
+            path = pathlib.Path(training_cfg.save_path)
+            agent.save(path / f"msa_hyper_{global_step}.tar")
 
         if terminated or truncated:
             num_episodes += 1
@@ -291,15 +292,7 @@ def _get_static_preference(pref_dim: int, device: torch.device | str) -> torch.T
         The device where the results will be stored to.
     Returns
     -------
-    torch.Tensorvg_disc_return_0': 1.0,
-  'avg_disc_return_1': 1.0,
-  'std_disc_return_0': 1.0,
-  'std_disc_return_1': 1.0,
-  'global_step': 2},
- {'avg_disc_return_0': 1.0,
-  'avg_disc_return_1': 1.0,
-  'std_disc_return_0': 1.0,
-  'std_disc_return_1
+    torch.Tensor
         The static preference.
     """
     return torch.full((pref_dim,), 1, dtype=torch.float32, device=device) / pref_dim

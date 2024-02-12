@@ -652,12 +652,10 @@ class HistoryBuffer:
             "points instead!"
         )
 
-        print(f"Set from {self._point_ptr} to {end_idx}. New pointer {end_idx}")
         self._avg_returns[self._point_ptr : end_idx, :] = avg_returns
         self._sd_returns[self._point_ptr : end_idx, :] = sd_returns
         self._global_step[self._point_ptr : end_idx] = step
         self._point_ptr = end_idx
-        print(f"Updated pointer to {self._point_ptr}")
 
     def save_history(self, save_path: str | pathlib.Path):
         """Saves the step history.
