@@ -245,9 +245,12 @@ class StaticSampler:
         """
         self._reward_dim = reward_dim
         self._device = torch.device("cpu" if device is None else device)
-        self._n_points = kwargs.get("n_points", StaticSampler.N_POINTS)
-        self._sampling_type = kwargs.get("sampling_type", StaticSampler.SAMPLING_TYPE)
-        self._uneven_weighting = kwargs.get("uneven_weighting", False)
+        self._n_points = kwargs.pop("n_points", StaticSampler.N_POINTS)
+        self._sampling_type = kwargs.pop("sampling_type", StaticSampler.SAMPLING_TYPE)
+        self._uneven_weighting = kwargs.pop("uneven_weighting", False)
+
+
+        assert len(kwargs) == 0, f"Unknown kwargs: {kwargs}"
 
         if self._sampling_type == "choice":
             self._generator = torch.Generator(device=self._device)
