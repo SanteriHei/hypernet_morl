@@ -12,7 +12,6 @@ embedding_layers:
   - n_resblocks: 2
     # This will be automatically resolve to the desired input dimension
     input_dim: "${network.input_dim:${....hypernet_inputs}, ${.....training_cfg.env_id}}"
-    # input_dim: "${sum:${....obs_dim}, ${....reward_dim}}"
     activation_fn: "relu"
     dropout_rates: 
       - null

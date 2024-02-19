@@ -1,6 +1,7 @@
 """Utilities for handling structured configurations and registering them
 with Hydra"""
 import json
+import math
 import pathlib
 from typing import Any, List
 
@@ -27,9 +28,7 @@ def register_resolvers():
     )
 
     omegaconf.OmegaConf.register_new_resolver(
-        name="env.action_space_low",
-        resolver=_resolve_action_space_low,
-        use_cache=True
+        name="env.action_space_low", resolver=_resolve_action_space_low, use_cache=True
     )
 
     omegaconf.OmegaConf.register_new_resolver(
@@ -44,9 +43,9 @@ def register_resolvers():
     omegaconf.OmegaConf.register_new_resolver(
             name="sum", resolver=lambda x, y: x + y
     )
-    
+
     omegaconf.OmegaConf.register_new_resolver(
-            name="mult", resolver=lambda x, y: x * y
+        name="imult", resolver=lambda x, y: math.floor(x * y)
     )
 
     omegaconf.OmegaConf.register_new_resolver(
@@ -65,9 +64,7 @@ def register_configs(cs: ConfigStore):
 
     cs.store(name="base_config", node=structured_configs.Config)
     cs.store(
-        group="session_cfg",
-        name="base_session",
-        node=structured_configs.SessionConfig
+        group="session_cfg", name="base_session", node=structured_configs.SessionConfig
     )
     cs.store(
         group="training_cfg",
@@ -80,14 +77,10 @@ def register_configs(cs: ConfigStore):
         node=structured_configs.MSAHyperConfig,
     )
     cs.store(
-        group="critic_cfg",
-        name="base_critic",
-        node=structured_configs.CriticConfig
+        group="critic_cfg", name="base_critic", node=structured_configs.CriticConfig
     )
     cs.store(
-        group="policy_cfg",
-        name="base_policy",
-        node=structured_configs.PolicyConfig
+        group="policy_cfg", name="base_policy", node=structured_configs.PolicyConfig
     )
 
 
