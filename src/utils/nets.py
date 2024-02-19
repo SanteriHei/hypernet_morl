@@ -1,7 +1,7 @@
 """ Some utilities for building neural networks """
 
 import warnings
-from typing import Callable, Iterable, Tuple
+from typing import Callable, Iterable, Tuple, Mapping, Sequence
 
 import torch
 import torch.nn.functional as F
@@ -204,20 +204,57 @@ def get_initialization_fn(init_name: str) -> Callable:
     return init_fn
 
 
-def get_network_input_dim(spec: Iterable[Tuple[bool, int]]) -> int:
-    """Calculate the input shape of a network dynamically.
+
+def compose_network_input_dim(
+        dims: Mapping[str, int], spec: Sequence[str]
+) -> int:
+    """Calculated the input dimension of a neural network dynamically.
 
     Parameters
     ----------
-    spec : Iterable[Tuple[bool, int]]
-        List of (use_input, input_shape) tuples.
+    dims : Mapping[str, int]
+        key, input dimension mapping.
+    spec : Sequence[str]
+        The names of the inputs that will be given to the network.j
 
     Returns
     -------
     int
         The dimensionality of the input.
     """
-    return sum(map(lambda x: x[1], filter(lambda x: x[0], spec)))
+    pass
+    if any((missing := net_input) not in spec for net_input in spec):
+        raise ValueError((f"Unknown input {missing!r}! Valid options "
+                          f"are {list(spec)}"))
+    if len(spec) == 1:
+        return dims[spec[0]]
+    return sum(dims[val] for val in spec)
+
+def compose_network_input(
+        vals: Mapping[str, torch.Tensor], spec: Sequence[str]
+) -> torch.Tensor:
+    """Compose a input for a network dynamically.
+
+    Parameters
+    ----------
+    vals : Mapping[str, torch.Tensor]
+        A key, tensor input mapping for the network.
+    spec : Sequence[str]
+        The spec containing the inputs for the network.
+
+    Returns
+    -------
+    torch.Tensor
+        The composed input tensor.
+    """
+    if any(missing := ipt not in vals for ipt in spec):
+        raise ValueError(
+                f"Unknown input {missing!r}! Valid options are {vals.keys()}"
+        )
+
+    if len(spec) == 1:
+        return vals[spec[0]]
+    return torch.concat([vals[net_input] for net_input in spec], dim=-1)
 
 
 def get_target_input(

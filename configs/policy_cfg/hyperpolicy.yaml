@@ -24,7 +24,6 @@ hypernet_cfg:
   embedding_layers:
     - n_resblocks: 2
       input_dim: "${network.input_dim:${....hypernet_inputs}, ${.....training_cfg.env_id}}"
-      #input_dim: "${network.input_dim:${....hypernet_use_obs}, ${....hypernet_use_prefs}, ${....obs_dim}, ${....reward_dim}}"
       activation_fn: "relu"
       layer_features:
         - 256

@@ -33,13 +33,13 @@ class Critic(nn.Module):
         )
 
         self._logger.debug("Creating critic network...")
-
-        target_input_dim = nets.get_network_input_dim(
-            [
-                ("action" in self._cfg.target_net_inputs, self._cfg.action_dim),
-                ("prefs" in self._cfg.target_net_inputs, self._cfg.action_dim),
-                ("obs" in self._cfg.target_net_inputs, self._cfg.action_dim),
-            ]
+        
+        target_input_dim = nets.compose_network_input(
+                {
+                    "action": self._cfg.action_dim,
+                    "prefs": self._cfg.reward_dim, 
+                    "obs": self._cfg.obs_dim
+                }, self._cfg.target_net_inputs
         )
         self._network = nets.create_mlp(
             input_dim=target_input_dim,
@@ -108,14 +108,16 @@ class HyperCritic(nn.Module):
             )
 
         self._logger.debug(self._embedding)
-
-        target_input_dim = nets.get_network_input_dim(
-            [
-                ("action" in self._cfg.target_net_inputs, self._cfg.action_dim),
-                ("prefs" in self._cfg.target_net_inputs, self._cfg.reward_dim),
-                ("obs" in self._cfg.target_net_inputs, self._cfg.obs_dim),
-            ]
+        
+        target_input_dim = nets.compose_network_input_dim(
+                {
+                    "action": self._cfg.action_dim,
+                    "prefs": self._cfg.reward_dim,
+                    "obs": self._cfg.obs_dim
+                }, self._cfg.target_net_inputs
         )
+
+
         if target_input_dim == 0:
             raise ValueError(
                 (
@@ -165,7 +167,12 @@ class HyperCritic(nn.Module):
         torch.Tensor
             The estimated Q(s, a, w) value with shape (batch_dim, reward_dim)
         """
-        z = self._embedding(torch.cat((obs, prefs), dim=-1))
+        hypernet_input = nets.compose_network_input(
+                {"action": action, "obs": obs, "prefs": prefs},
+                self._cfg.hypernet_inputs
+        )
+
+        z = self._embedding(hypernet_input)
         self._logger.debug(f"Z shape {z.shape}")
         weights, biases, scales = self._critic_head(z)
 
@@ -173,8 +180,10 @@ class HyperCritic(nn.Module):
         for w, b, s in zip(weights, biases, scales):
             self._logger.debug(f"W {w.shape} | B: {b.shape} | S {s.shape}")
 
-        target_net_input = self._get_target_input(obs, action, prefs)
-        self._logger.debug(f"Critic input shape {target_net_input.shape}")
+        target_net_input = nets.compose_network_input(
+                {"obs": obs, "action": action, "prefs": prefs},
+                self._cfg.target_net_inputs
+        )
         out = nets.target_network(
             target_net_input,
             weights=weights,
@@ -205,46 +214,12 @@ class HyperCritic(nn.Module):
             The Weights, biases and scales generated for each layer 
             of the dynamic network.
         """
-        z = self._embedding(torch.cat((obs, prefs), dim=-1))
+        hypernet_input = nets.compose_network_input(
+                {"prefs": prefs, "obs": obs}, self._cfg.hypernet_inputs
+        )
+        z = self._embedding(hypernet_input)
         weights, biases, scales = self._critic_head(z)
         return [
             {"weight": w, "bias": b, "scale": s}
             for w, b, s in zip(weights, biases, scales)
         ]
-
-    def _get_target_input(
-        self, obs: torch.Tensor, action: torch.Tensor, prefs: torch.Tensor
-    ) -> torch.Tensor:
-        """Create the input for the target network based on the use
-        configuration.
-
-        Parameters
-        ----------
-        obs : torch.Tensor
-            The current observation.
-        action : torch.Tensor
-            The current action.
-        prefs : torch.Tensor
-            The current preferences over the objectives.
-
-        Returns
-        -------
-        torch.Tensor
-            The composed input for the target network.
-        """
-
-        out = []
-        for target_input in self._cfg.target_net_inputs:
-            self._logger.debug(f"Adding {target_input} to target input")
-            match target_input:
-                case "obs":
-                    out.append(obs)
-                case "action":
-                    out.append(action)
-                case "prefs":
-                    out.append(prefs)
-                case _:
-                    raise ValueError(f"Unknown target input {target_input!r}!")
-        if len(out) == 1:
-            return out[0]
-        return torch.cat(out, dim=-1)

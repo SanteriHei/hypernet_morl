@@ -8,7 +8,7 @@ head_init_stds:
   - 0.008
 
 # The MLP configuration
-input_dim: "${sum:${..obs_dim}, ${..reward_dim}}"
+input_dim: "${network.input_dim:${....hypernet_inputs}, ${.....training_cfg.env_id}}"
 layer_features:
   - 256
   - 512

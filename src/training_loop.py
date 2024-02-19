@@ -67,7 +67,8 @@ def train_agent(cfg: structured_configs.Config, agent):
             cfg.critic_cfg.reward_dim,
             device=agent.device,
             seed=cfg.seed,
-            uneven_weighting=cfg.training_cfg.warmup_use_uneven_sampling
+            uneven_weighting=cfg.training_cfg.warmup_use_uneven_sampling,
+            n_points=cfg.training_cfg.warmup_n_ref_points
     )
 
     # Ensure that the saving directory exists
