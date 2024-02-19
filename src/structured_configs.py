@@ -184,6 +184,7 @@ class CriticConfig:
     action_dim: int = MISSING
     activation_fn: str = "relu"
     target_net_inputs: Tuple[str, ...] = ("action",)
+    hypernet_inputs: Tuple[str, ...] = ("obs", "prefs")
 
     hypernet_type: str = MISSING
     hypernet_cfg: Any = MISSING
@@ -292,7 +293,10 @@ class TrainingConfig:
     # Simulation env stuff
     n_timesteps: int = 1_000
     n_random_steps: int = 200
+    n_warmup_steps: int = 1_000
+
     env_id: str = MISSING
+    num_envs: int = 1
 
     # buffer parameters
     batch_size: int = 100
@@ -302,6 +306,10 @@ class TrainingConfig:
     sampler_type: str = "normal"
     pref_sampling_freq: PrefSamplerFreq = "timestep"
     angle_deg: float = 45
+
+    # Warmup sampler
+    warmup_use_uneven_sampling: bool = False
+    warmup_n_ref_points: int = 20
 
     # updates
     n_gradient_steps: int = 1
@@ -366,12 +374,16 @@ class Config:
             "ref_point": self.training_cfg.ref_point,
             "ref_set": self.training_cfg.ref_set,
             "env_id": self.training_cfg.env_id,
+            "num_envs": self.training_cfg.num_envs,
             "obs_dim": self.policy_cfg.obs_dim,
             "reward_dim": self.policy_cfg.reward_dim,
             "action_dim": self.critic_cfg.action_dim,
             "n_timesteps:": self.training_cfg.n_timesteps,
+            "n_warmump_steps": self.training_cfg.n_warmup_steps,
+            "warmup_n_ref_points": self.training_cfg.warmup_n_ref_points,
             "sampler_type": self.training_cfg.sampler_type,
             "pref_sampling_freq": self.training_cfg.pref_sampling_freq.name,
+            "warmup_use_uneven_sampling": self.training_cfg.warmup_use_uneven_sampling,
             "batch_size": self.training_cfg.batch_size,
             "buffer_capacity": self.training_cfg.buffer_capacity,
             # MSA-hyper

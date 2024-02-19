@@ -1,17 +1,18 @@
 """ Define some helpers for the environments"""
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+from typing import Any, Callable, Dict, Sequence, Tuple
 
 import gymnasium as gym
 import mo_gymnasium as mo_gym
 import numpy as np
 import numpy.typing as npt
 import torch
+from gymnasium.vector import AsyncVectorEnv, VectorEnv
+from gymnasium.vector.utils import batch_space
 
 
 class TorchWrapper(gym.Wrapper, gym.utils.RecordConstructorArgs):
-
     def __init__(self, env: gym.Env, device: str | torch.device | None = None):
         """A wrapper that allows one to pass in and receive torch.Tensors to
         the  environments seamlessly.
@@ -29,7 +30,7 @@ class TorchWrapper(gym.Wrapper, gym.utils.RecordConstructorArgs):
         self.device = device if device is not None else torch.device("cpu")
 
     def reset(
-            self, *, seed: int | None = None, options: Dict[str, Any] | None = None
+        self, *, seed: int | None = None, options: Dict[str, Any] | None = None
     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
         """Overrides the reset method to return the observations as a torch.Tensor
 
@@ -52,7 +53,7 @@ class TorchWrapper(gym.Wrapper, gym.utils.RecordConstructorArgs):
         return obs, info
 
     def step(
-            self, action: npt.NDArray | torch.Tensor
+        self, action: npt.NDArray | torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, bool, bool, Dict[str, Any]]:
         """Overrides the step method to allow one to use tensors.
 
@@ -76,8 +77,32 @@ class TorchWrapper(gym.Wrapper, gym.utils.RecordConstructorArgs):
         return obs, rewards, terminated, truncated, info
 
 
+class MOAsyncVectorEnv(AsyncVectorEnv):
+    def __init__(self, env_fns: Sequence[Callable], copy: bool = True):
+        """Asynchronous vectorized environments implementation for the
+        multi-objective environments. Adds the reward-space information
+        to the environment.
+
+        Parameters
+        ----------
+        env_fns : Sequence[Callable]
+            Set of functions that generate the environments.
+        copy : bool, optional.
+            If set to true, the reset and step return a copy of the
+            observations. Default True.
+        """
+        dummy_env = env_fns[0]()
+        try:
+            self.reward_space = dummy_env.get_wrapper_attr("reward_space")
+        except Exception:
+            self.reward_space = dummy_env.reward_space
+        dummy_env.close()
+        AsyncVectorEnv.__init__(self, env_fns, copy=copy)
+        self._rewards = batch_space(self.reward_space, self.num_envs)
+
+
 def create_env(env_id: str, device: str | torch.device) -> gym.Env:
-    """Create new gymnasium enviroment and apply the neccessary wrappers to the 
+    """Create new gymnasium enviroment and apply the neccessary wrappers to the
     enviroment.
 
     Parameters
@@ -102,8 +127,39 @@ def create_env(env_id: str, device: str | torch.device) -> gym.Env:
     return env
 
 
-def create_vec_envs(env_id: str, device: str | torch.device, n_envs: int = 5):
-    envs = mo_gym.MOSyncVectorEnv(
-        (lambda env_id: mo_gym.make(env_id) for _ in range(n_envs))
-    )
+def create_vec_envs(
+        env_id, device: str | torch.device, n_envs: int = 5,
+        asynchronous: bool = True
+) -> VectorEnv:
+
+    """Creates vectorized environments with the required wrappers.
+
+    Parameters
+    ----------
+    env_id : str
+        The id for the used environment.
+    device : str | torch.device
+        The device at which the outputs from the environment will be placed to.
+    n_envs : int, optional
+        The amount environments to create. Default 5
+    asynchronous : bool, optional
+        If set to True, the vectorized environments will be run in 
+        parallel, otherwise they are run in synchronized fashion. Default True.
+
+    Returns
+    -------
+    VectorEnv
+        'n_envs' copies of the environment in vectorized form.
+    """
+    if asynchronous:
+        envs = MOAsyncVectorEnv([
+            lambda env_id: mo_gym.make(env_id, autoreset = True) 
+            for _ in range(n_envs)
+        ])
+    else:
+        envs = mo_gym.MOSyncVectorEnv([
+            lambda env_id: mo_gym.make(env_id) for _ in range(n_envs)
+        ])
+    envs = mo_gym.MORecordEpisodeStatistics(envs)
+    envs = mo_gym.TorchWrapper(envs, device=device)
     return envs

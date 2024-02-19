@@ -10,8 +10,9 @@ head_init_stds:
 # Define the embedding of the hypernet.
 embedding_layers:
   - n_resblocks: 2
-    # This will be automatically resolved with reward_dim + obs_dim
-    input_dim: "${sum:${....obs_dim}, ${....reward_dim}}"
+    # This will be automatically resolve to the desired input dimension
+    input_dim: "${network.input_dim:${....hypernet_inputs}, ${.....training_cfg.env_id}}"
+    # input_dim: "${sum:${....obs_dim}, ${....reward_dim}}"
     activation_fn: "relu"
     dropout_rates: 
       - null

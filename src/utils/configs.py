@@ -44,6 +44,10 @@ def register_resolvers():
     omegaconf.OmegaConf.register_new_resolver(
             name="sum", resolver=lambda x, y: x + y
     )
+    
+    omegaconf.OmegaConf.register_new_resolver(
+            name="mult", resolver=lambda x, y: x * y
+    )
 
     omegaconf.OmegaConf.register_new_resolver(
         name="network.input_dim", resolver=_resolve_input_dim_v2

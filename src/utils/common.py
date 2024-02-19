@@ -5,7 +5,9 @@ import itertools
 import json
 import numbers
 import pathlib
+import time
 import warnings
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Literal, Mapping, Tuple
 
@@ -73,6 +75,24 @@ def dump_yaml(filepath: pathlib.Path | str, payload: Mapping[str, Any]):
         raise FileExistsError(f"{filepath!r} already exists! (and is not a file)")
     with fpath.open("w") as ofstream:
         yaml.dump(payload, ofstream)
+
+@contextmanager
+def scoped_timer(scope_name: str):
+    """Create a timer that times the execution of the code inside the 
+    context.
+
+    Parameters
+    ----------
+    scope_name : str
+        The name of the scope.
+    """
+    t0 = time.perf_counter_ns()
+    try:
+        yield
+    finally:
+        t1 = time.perf_counter_ns()
+        elapsed_time = t1 - t0
+        print(f"[{scope_name}]: {elapsed_time/10**9:.3f}s")
 
 
 def get_preference_sampler(
@@ -200,7 +220,8 @@ def get_equally_spaced_weights(
 
 
 class StaticSampler:
-    N_POINTS: int = 20
+    N_POINTS: int = 50
+    SAMPLING_TYPE: str = "choice"
 
     def __init__(
         self,
@@ -225,6 +246,24 @@ class StaticSampler:
         self._reward_dim = reward_dim
         self._device = torch.device("cpu" if device is None else device)
         self._n_points = kwargs.get("n_points", StaticSampler.N_POINTS)
+        self._sampling_type = kwargs.get("sampling_type", StaticSampler.SAMPLING_TYPE)
+        self._uneven_weighting = kwargs.get("uneven_weighting", False)
+
+        if self._sampling_type == "choice":
+            self._generator = torch.Generator(device=self._device)
+            if seed is not None:
+                self._generator.manual_seed(seed)
+
+            if self._uneven_weighting:
+                w = torch.ones(self._n_points, device=self._device)
+                w[self._n_points//2:] = 1.75
+                self._weights = w / torch.linalg.vector_norm(w, ord=1)
+            else:
+                self._weights = torch.ones(
+                        self._n_points, device=self._device
+                ) / self._n_points
+        else:
+            self._generator = None
 
         self._ptr = 0
         ref_preferences = pymoo.util.ref_dirs.get_reference_directions(
@@ -258,6 +297,23 @@ class StaticSampler:
             The sampled preferences.
         """
 
+        
+        match self._sampling_type:
+            case "choice":
+                return self._rnd_choice(n_samples)
+            case "sequence":
+                return self._get_sequence(n_samples)
+            case _:
+                raise ValueError("Unknown samping type!")
+
+    def _rnd_choice(self, n_samples: int) -> torch.Tensor:
+        idx = torch.multinomial(
+                self._weights, n_samples,
+                replacement=False, generator=self._generator
+        )
+        return self._ref_preferences[idx, :]
+
+    def _get_sequence(self, n_samples) -> torch.Tensor:
         assert n_samples <= self._n_points, (
             "Cannot sample more than the amount of reference points "
             f"({self._n_points}) at a time!"
@@ -265,28 +321,25 @@ class StaticSampler:
 
         out = torch.full(
             (n_samples, self._reward_dim),
-            torch.nan,
+            torch.inf,
             dtype=torch.float32,
             device=self._device,
         )
-        new_ptr = min(self._n_points, self._ptr + n_samples)
-        n_points = new_ptr - self._ptr
+        out_ptr = 0
+        while out_ptr < n_samples:
+            
+            if self._ptr == self._n_points:
+                self._ptr = 0
 
-        # If we cannot sample any points from the end of the buffer, start from
-        # the beginning
-        if n_points == 0:
-            out[:n_samples, :] = self._ref_preferences[0:n_samples, :]
-            self._ptr = n_samples
-        elif n_points < n_samples:
-            out[:n_points, :] = self._ref_preferences[self._ptr : new_ptr, :]
+            new_ptr = min(self._n_points, self._ptr + out.shape[0] - out_ptr)
+
+            n_points = new_ptr - self._ptr
+
+            out[out_ptr:out_ptr+n_points] = self._ref_preferences[self._ptr:new_ptr]
             self._ptr = new_ptr
-        else:
-            out[:, :] = self._ref_preferences[self._ptr : new_ptr, :]
-            self._ptr = new_ptr
-        # self._ptr = new_ptr if new_ptr < self._n_points else 0
-        assert not out.isnan().any().item(), "Output contains NaN's!"
+            out_ptr += n_points
+        assert not out.isinf().any().item(), "Output contains Inf's!"
         return out
-
 
 class UniformSampler:
     def __init__(

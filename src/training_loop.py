@@ -23,7 +23,14 @@ def train_agent(cfg: structured_configs.Config, agent):
     cfg : structured_configs.Config
         The configuration for the training.
     """
-    training_env = envs.create_env(cfg.training_cfg.env_id, cfg.device)
+
+    if cfg.training_cfg.num_envs == 1:
+        training_env = envs.create_env(cfg.training_cfg.env_id, cfg.device)
+    else:
+        training_env = envs.create_vec_envs(
+                cfg.training_cfg.env_id, device=cfg.device,
+                n_envs = cfg.training_cfg.num_envs
+        )
 
     if cfg.training_cfg.log_to_wandb:
         wandb_run = log.setup_wandb(cfg.session_cfg, cfg.summarize())
@@ -55,6 +62,13 @@ def train_agent(cfg: structured_configs.Config, agent):
         seed=cfg.seed,
         angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg),
     )
+    warmup_sampler = common.get_preference_sampler(
+            "static",
+            cfg.critic_cfg.reward_dim,
+            device=agent.device,
+            seed=cfg.seed,
+            uneven_weighting=cfg.training_cfg.warmup_use_uneven_sampling
+    )
 
     # Ensure that the saving directory exists
     save_dir = pathlib.Path(cfg.training_cfg.save_path)
@@ -69,6 +83,7 @@ def train_agent(cfg: structured_configs.Config, agent):
         training_cfg=cfg.training_cfg,
         replay_buffer=replay_buffer,
         weight_sampler=preference_sampler,
+        warmup_sampler=warmup_sampler,
         env=training_env,
         logger=logger,
         wandb_run=wandb_run,
@@ -106,6 +121,7 @@ def _gym_training_loop(
     training_cfg: structured_configs.TrainingConfig,
     replay_buffer: common.ReplayBuffer,
     weight_sampler: common.PreferenceSampler,
+    warmup_sampler: common.StaticSampler,
     env: gym.Env,
     logger: logging.Logger,
     wandb_run: log.WandbRun,
@@ -118,6 +134,16 @@ def _gym_training_loop(
     cfg : sconfigs.Config
         The configuration for the training run.
     """
+
+    def _sample_preferences(step: int, n_samples: int) -> torch.Tensor:
+        if step < training_cfg.n_warmup_steps:
+            prefs = warmup_sampler.sample(n_samples=n_samples)
+        else:
+            prefs = weight_sampler.sample(n_samples=n_samples)
+        return prefs.squeeze()
+
+
+
     # Initialize the run
     obs, info = env.reset(seed=seed)
     global_step = 0
@@ -153,8 +179,8 @@ def _gym_training_loop(
             global_step == 1
             or training_cfg.pref_sampling_freq == PrefSamplerFreq.timestep
         ):
-            prefs = weight_sampler.sample(n_samples=1)
-            prefs = prefs.squeeze()
+
+            prefs = _sample_preferences(global_step, n_samples=1)
 
         if global_step < training_cfg.n_random_steps:
             action = torch.tensor(
@@ -261,9 +287,7 @@ def _gym_training_loop(
             )
 
             if training_cfg.pref_sampling_freq == PrefSamplerFreq.episode:
-                prefs = weight_sampler.sample(n_samples=1)
-                prefs = prefs.squeeze()
-
+                prefs = _sample_preferences(global_step, n_samples=1)
             obs, info = env.reset()
         else:
             obs = next_obs
@@ -378,6 +402,7 @@ def _log_pareto_front(
     pfront_table: List[Dict[str, float | int]],
     non_dom_pfront_table: List[Dict[str, float | int]],
     wandb_run: log.WandbRun,
+    step_freq: int = int(5e4)
 ):
     """Logs the pareto-front to the W&B dashboard.
 
@@ -399,6 +424,12 @@ def _log_pareto_front(
                 row["std_disc_return_0"],
                 row["std_disc_return_1"]
         ]
+        
+    # Filter certain amount of rows from the dataset to make them fit to the 
+    # wandb-tables
+    pfront_table = filter(
+            lambda x: x["global_step"] % step_freq == 0, pfront_table
+    )
 
     pareto_data = list(map(_row_to_list, pfront_table))
     non_dom_pareto_data = list(map(_row_to_list, non_dom_pfront_table))
