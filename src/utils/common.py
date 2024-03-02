@@ -778,8 +778,8 @@ class HistoryBuffer:
         for i in range(idx.shape[0] - 1):
             start_idx = idx[i]
             end_idx = idx[i + 1]
-            avg_returns = self._avg_returns[start_idx:end_idx]
-            return_sds = self._sd_returns[start_idx:end_idx]
+            avg_returns = self._avg_returns[start_idx:end_idx, :]
+            return_sds = self._sd_returns[start_idx:end_idx, :]
             global_steps = self._global_step[start_idx:end_idx]
 
             # Store the unfiltered pareto-front

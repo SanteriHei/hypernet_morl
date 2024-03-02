@@ -22,7 +22,7 @@ loggers:
   train:
     handlers:
       - console
-    level: INFO
+    level: DEBUG
     propagate: False
   utils.nets:
     handlers: 

@@ -3,7 +3,7 @@
 import dataclasses
 import itertools
 import pathlib
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Mapping, Any
 
 import torch
 import torch.nn.functional as F
@@ -110,6 +110,61 @@ class MSAHyper:
         for critic in self._critics:
             critic.train(mode=train_mode)
 
+    @classmethod
+    def from_save(cls, filepath: pathlib.Path | str):
+        filepath = pathlib.Path(filepath)
+
+        if not filepath.is_file():
+            raise FileNotFoundError(
+                    f"{str(filepath)} does not point to a valid file!"
+            )
+        state = torch.load(filepath)
+
+        if not isinstance(state["policy"]["config"], dict):
+            policy_cfg = sconfigs.PolicyConfig(**dataclasses.asdict(state["policy"]["config"]))
+        else:
+            policy_cfg = sconfigs.PolicyConfig(state["policy"]["config"])
+        
+        msa_cfg = sconfigs.MSAHyperConfig(**state["msa_hyper"]["config"])
+
+        critic_cfg = sconfigs.critic_cfg_from_dict(state["critic_0"]["config"])
+        msa_hyper = cls(msa_cfg, policy_cfg=policy_cfg, critic_cfg=critic_cfg)
+
+        # Reset the states from the loading state
+        msa_hyper.load(state=state)
+        return msa_hyper
+    
+    def load(
+            self, *, filepath: pathlib.Path | str | None = None,
+            state: Mapping[str, Any] | None = None
+        ):
+        if filepath is None and state is None:
+            raise ValueError("Both 'filepath' and 'state' cannot be None!")
+
+        
+        # If filepath was specified, load the state from it, 
+        if filepath is not None:
+            filepath = pathlib.Path(filepath)
+            state = torch.load(filepath)
+        
+        # Critics
+        for i, critic in enumerate(self._critics):
+            state_dict = state[f"critic_{i}"]["state"]
+            critic.load_state_dict(state_dict)
+        
+
+        # Critic targets
+        for i, critic in enumerate(self._critics):
+            state_dict = state[f"critic_target_{i}"]["state"]
+            critic.load_state_dict(state_dict)
+
+        # Policy + optimizers
+        self._policy.load_state_dict(state["policy"]["state"])
+        self._policy_optim.load_state_dict(state["msa_hyper"]["policy_optim"])
+        self._critic_optim.load_state_dict(state["msa_hyper"]["critic_optim"])
+        self.set_mode(train_mode=False)
+
+
     def save(self, save_path: pathlib.Path | str):
         """Saves the current state of the MSA-hyper and its submodules.
 
@@ -141,7 +196,7 @@ class MSAHyper:
         # Policy
         state["policy"] = {
             "state": self._policy.state_dict(),
-            "config": self._policy.config,
+            "config": dataclasses.asdict(self._policy.config),
         }
 
         state["msa_hyper"] = {

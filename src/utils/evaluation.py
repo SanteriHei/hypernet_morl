@@ -51,7 +51,7 @@ def eval_agent(
         discounted_returns += disc_factor * reward
         disc_factor *= gamma
     scalarized_returns = np.dot(np_prefs, returns)
-    scalarized_disc_returns = np.dot(np_prefs, returns)
+    scalarized_disc_returns = np.dot(np_prefs, discounted_returns)
 
     return {
         "scalarized_returns": scalarized_returns,

@@ -16,6 +16,7 @@ torchvision = "*"
 torchaudio = "*"
 wandb = "*"
 tensorboard = "*"
+moviepy = "*"
 
 [dev-packages]
 python-lsp-server = {extras = ["all"], version = "*"}

@@ -101,7 +101,9 @@ class MOAsyncVectorEnv(AsyncVectorEnv):
         self._rewards = batch_space(self.reward_space, self.num_envs)
 
 
-def create_env(env_id: str, device: str | torch.device) -> gym.Env:
+def create_env(
+        env_id: str, device: str | torch.device, **kwargs: Dict[str, Any]
+    ) -> gym.Env:
     """Create new gymnasium enviroment and apply the neccessary wrappers to the
     enviroment.
 
@@ -111,13 +113,16 @@ def create_env(env_id: str, device: str | torch.device) -> gym.Env:
         The id of the environment.
     device : str | torch.device
         The device to which the data should be moved to from the environment.
+    kwargs: Dict[str, Any]
+        Any possible extra keyword arguments passed to environment creation
+        function
 
     Returns
     -------
     gym.Env
         The desired enviroment with appropriate wrappers.
     """
-    env = mo_gym.make(env_id)
+    env = mo_gym.make(env_id, **kwargs)
     if isinstance(device, str):
         device = torch.device(device)
 

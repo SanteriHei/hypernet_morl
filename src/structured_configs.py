@@ -34,6 +34,22 @@ def _get_slurm_array_task_id() -> int | None:
 
 PrefSamplerFreq = Enum("PrefSamplerFreq", ["timestep", "episode"])
 
+def critic_cfg_from_dict(critic_dict: Dict[str, Any]):
+
+    # If hypernet configuration is available, convert it to the Structured config
+    if "hypernet_cfg" in critic_dict:
+        hypernet_cfg = critic_dict["hypernet_cfg"]
+        blocks = []
+        for layer in hypernet_cfg["embedding_layers"]:
+            emb = ResblockConfig(**layer)
+            blocks.append(emb)
+        hypernet_cfg["embedding_layers"] = tuple(blocks)
+        critic_dict["hypernet_cfg"] = HyperNetConfig(**hypernet_cfg)
+    print(critic_dict["hypernet_cfg"])
+    return CriticConfig(**critic_dict)
+
+
+
 @dataclass
 class MSAHyperConfig:
     """A configuration for the MSA-hyper algorithm
@@ -105,7 +121,7 @@ class MlpConfig:
         is added after a linear layer.
     dropout_rates: Tuple[float | None, ...] The dropout rate to add after
         the layer. If None, no dropout is used.
-    head_hidden_dim: int The hidden dimension for the head network. Should match
+    head_hidden_dim: ient The hidden dimension for the head network. Should match
         the ouput of the embedding layer.
     head_init_method {"uniform", "normal"} The initialization method used for
         the head layers. Default uniform.
