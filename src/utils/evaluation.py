@@ -29,27 +29,29 @@ def eval_agent(
         Returns the scalarized returns, scalarized discounted returns, 
         returns and the discounted returns.
     """
-    prefs = prefs.squeeze()
     env = mo_gym.make(env_id)
     obs, info = env.reset()
-    th_obs = torch.tensor(obs).float().to(agent.device)
+
+    # Ensure that inputs for agent have batch dimension
+    th_obs = torch.atleast_2d(torch.tensor(obs).float().to(agent.device))
     
     done = False
         
     np_prefs = prefs.detach().cpu().numpy()
-    returns = np.zeros_like(np_prefs)
-    discounted_returns = np.zeros_like(np_prefs)
+    returns = np.zeros_like(np_prefs.squeeze())
+    discounted_returns = np.zeros_like(np_prefs.squeeze())
     disc_factor = 1.0
     while not done:
         action = agent.eval_action(th_obs, prefs)
-        np_action = action.detach().cpu().numpy()
+        np_action = action.detach().cpu().numpy().squeeze()
         obs, reward, terminated, truncated, info = env.step(np_action)
         done = terminated or truncated
-        th_obs = torch.tensor(obs).float().to(agent.device)
+        th_obs = torch.atleast_2d(torch.tensor(obs).float().to(agent.device))
 
         returns += reward
         discounted_returns += disc_factor * reward
         disc_factor *= gamma
+
     scalarized_returns = np.dot(np_prefs, returns)
     scalarized_disc_returns = np.dot(np_prefs, discounted_returns)
 
@@ -57,7 +59,7 @@ def eval_agent(
         "scalarized_returns": scalarized_returns,
         "scalarized_discounted_returns": scalarized_disc_returns,
         "returns": returns,
-        "discounted_returns": returns
+        "discounted_returns": discounted_returns
     }
 
 
@@ -87,6 +89,7 @@ def eval_policy(
         and the average and standard deviation of discounted returns (as vector)
     """
     agent.set_mode(train_mode=False)
+    prefs = torch.atleast_2d(prefs)
     gamma = agent.config.gamma
     evals = [
             eval_agent(agent, env_id, prefs, gamma=gamma)

@@ -76,9 +76,10 @@ def dump_yaml(filepath: pathlib.Path | str, payload: Mapping[str, Any]):
     with fpath.open("w") as ofstream:
         yaml.dump(payload, ofstream)
 
+
 @contextmanager
 def scoped_timer(scope_name: str):
-    """Create a timer that times the execution of the code inside the 
+    """Create a timer that times the execution of the code inside the
     context.
 
     Parameters
@@ -249,7 +250,6 @@ class StaticSampler:
         self._sampling_type = kwargs.pop("sampling_type", StaticSampler.SAMPLING_TYPE)
         self._uneven_weighting = kwargs.pop("uneven_weighting", False)
 
-
         assert len(kwargs) == 0, f"Unknown kwargs: {kwargs}"
 
         if self._sampling_type == "choice":
@@ -259,12 +259,12 @@ class StaticSampler:
 
             if self._uneven_weighting:
                 w = torch.ones(self._n_points, device=self._device)
-                w[self._n_points//2:] = 1.75
+                w[self._n_points // 2 :] = 1.75
                 self._weights = w / torch.linalg.vector_norm(w, ord=1)
             else:
-                self._weights = torch.ones(
-                        self._n_points, device=self._device
-                ) / self._n_points
+                self._weights = (
+                    torch.ones(self._n_points, device=self._device) / self._n_points
+                )
         else:
             self._generator = None
 
@@ -300,7 +300,6 @@ class StaticSampler:
             The sampled preferences.
         """
 
-        
         match self._sampling_type:
             case "choice":
                 return self._rnd_choice(n_samples)
@@ -311,8 +310,7 @@ class StaticSampler:
 
     def _rnd_choice(self, n_samples: int) -> torch.Tensor:
         idx = torch.multinomial(
-                self._weights, n_samples,
-                replacement=False, generator=self._generator
+            self._weights, n_samples, replacement=False, generator=self._generator
         )
         return self._ref_preferences[idx, :]
 
@@ -330,7 +328,6 @@ class StaticSampler:
         )
         out_ptr = 0
         while out_ptr < n_samples:
-            
             if self._ptr == self._n_points:
                 self._ptr = 0
 
@@ -338,11 +335,14 @@ class StaticSampler:
 
             n_points = new_ptr - self._ptr
 
-            out[out_ptr:out_ptr+n_points] = self._ref_preferences[self._ptr:new_ptr]
+            out[out_ptr : out_ptr + n_points] = self._ref_preferences[
+                self._ptr : new_ptr
+            ]
             self._ptr = new_ptr
             out_ptr += n_points
         assert not out.isinf().any().item(), "Output contains Inf's!"
         return out
+
 
 class UniformSampler:
     def __init__(
@@ -407,7 +407,7 @@ class UniformSampler:
             pref_1 = 1 - pref_0
             prefs = torch.concat((pref_0, pref_1), axis=-1)
             assert (
-                (prefs.sum() - 1).abs() < 1e-7
+                (prefs.sum(axis=-1) - 1).abs() < 1e-7
             ).all(), f"Not all prefs sum to one: ({prefs.sum(axis=-1).min()}, {prefs.sum(axis=-1).max()})"
             return prefs
             # return torch.concat((pref_0, pref_1), axis=-1)
@@ -619,6 +619,7 @@ class HistoryBuffer:
         reward_dim : int
             The dimensionality of the reward space.
         """
+
         self._obs = np.empty((total_timesteps, obs_dim), dtype=np.float64)
         self._next_obs = np.empty((total_timesteps, obs_dim), dtype=np.float64)
         self._actions = np.empty((total_timesteps, action_dim), dtype=np.float64)
@@ -675,14 +676,36 @@ class HistoryBuffer:
         if isinstance(next_obs, torch.Tensor):
             next_obs = next_obs.cpu().numpy()
 
-        self._obs[self._step_ptr, ...] = obs
-        self._actions[self._step_ptr, ...] = action
-        self._prefs[self._step_ptr, ...] = prefs
-        self._rewards[self._step_ptr, ...] = rewards
-        self._next_obs[self._step_ptr, ...] = next_obs
-        self._dones[self._step_ptr] = done
-        self._episodes[self._step_ptr] = episode
-        self._step_ptr += 1
+        # Check for batch dimension
+        if obs.ndim == 2:
+            for i in range(obs.shape[0]):
+                self._append_single(
+                        obs=obs[i, :],
+                        action=action[i, :],
+                        rewards=rewards[i, :], 
+                        prefs=prefs[i, :],
+                        next_obs=next_obs[i, :],
+                        done=done[i],
+                        episode=episode
+                    )
+        else:
+            self._append_single(
+                    obs=obs,
+                    action=action,
+                    rewards=rewards, 
+                    prefs=prefs,
+                    next_obs=next_obs,
+                    done=done,
+                    episode=episode
+                )
+        # self._obs[self._step_ptr, ...] = obs
+        # self._actions[self._step_ptr, ...] = action
+        # self._prefs[self._step_ptr, ...] = prefs
+        # self._rewards[self._step_ptr, ...] = rewards
+        # self._next_obs[self._step_ptr, ...] = next_obs
+        # self._dones[self._step_ptr] = done
+        # self._episodes[self._step_ptr] = episode
+        # self._step_ptr += 1
 
     def append_avg_returns(
         self, avg_returns: List[float], sd_returns: List[float], step: int
@@ -800,6 +823,27 @@ class HistoryBuffer:
             non_dom_pareto_front.extend(json_non_dom_pfront)
         return pareto_front, non_dom_pareto_front
 
+    def _append_single(
+        self,
+        *,
+        obs: torch.Tensor,
+        action: torch.Tensor | npt.NDArray,
+        rewards: torch.Tensor | npt.NDArray,
+        prefs: torch.Tensor | npt.NDArray,
+        next_obs: torch.Tensor | npt.NDArray,
+        done: bool,
+        episode: int,
+    ):
+        self._obs[self._step_ptr, ...] = obs
+        self._actions[self._step_ptr, ...] = action
+        self._prefs[self._step_ptr, ...] = prefs
+        self._rewards[self._step_ptr, ...] = rewards
+        self._next_obs[self._step_ptr, ...] = next_obs
+        self._dones[self._step_ptr] = done
+        self._episodes[self._step_ptr] = episode
+        self._step_ptr += 1
+        pass
+
 
 class ReplayBuffer:
     def __init__(
@@ -900,17 +944,28 @@ class ReplayBuffer:
         done : bool
             The state of the episode (i.e. is it finished or not).
         """
-        self._obs[self._ptr, ...] = obs
-        self._actions[self._ptr, ...] = action
-        self._rewards[self._ptr, ...] = rewards
-        self._prefs[self._ptr, ...] = prefs
-        self._next_obs[self._ptr, ...] = next_obs
-        self._dones[self._ptr] = done
 
-        self._ptr = (self._ptr + 1) % self._capacity
-
-        if self._len < self._capacity:
-            self._len += 1
+        # check if the data has batch dimension
+        if obs.ndim == 2:
+            done = torch.tensor(done, dtype=torch.float32, device=self._device)
+            for i in range(obs.shape[0]):
+                self._append_single(
+                    obs=obs[i, :],
+                    action=action[i, :],
+                    rewards=rewards[i, :],
+                    prefs=prefs[i, :],
+                    next_obs=next_obs[i, :],
+                    done=done[i],
+                )
+        else:
+            self._append_single(
+                obs=obs,
+                action=action,
+                rewards=rewards,
+                prefs=prefs,
+                next_obs=next_obs,
+                done=done,
+            )
 
     def sample(self, n_samples: int) -> ReplaySample:
         """Sample the buffer for a set of observation, action, reward,
@@ -971,3 +1026,25 @@ class ReplayBuffer:
             The current lenght of the buffer.
         """
         return self._len
+
+    def _append_single(
+        self,
+        *,
+        obs: torch.Tensor,
+        action: torch.Tensor,
+        rewards: torch.Tensor,
+        prefs: torch.Tensor,
+        next_obs: torch.Tensor,
+        done: torch.Tensor,
+    ):
+        self._obs[self._ptr, ...] = obs
+        self._actions[self._ptr, ...] = action
+        self._rewards[self._ptr, ...] = rewards
+        self._prefs[self._ptr, ...] = prefs
+        self._next_obs[self._ptr, ...] = next_obs
+        self._dones[self._ptr] = done
+
+        self._ptr = (self._ptr + 1) % self._capacity
+
+        if self._len < self._capacity:
+            self._len += 1

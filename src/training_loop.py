@@ -1,5 +1,6 @@
 import logging
 import pathlib
+import time
 from typing import Dict, List, Tuple
 
 import gymnasium as gym
@@ -137,7 +138,10 @@ def _gym_training_loop(
     """
 
     def _sample_preferences(step: int, n_samples: int) -> torch.Tensor:
-        if step < training_cfg.n_warmup_steps:
+        if (
+                training_cfg.n_warmup_steps > 0 and 
+                step < training_cfg.n_warmup_steps
+        ):
             prefs = warmup_sampler.sample(n_samples=n_samples)
         else:
             prefs = weight_sampler.sample(n_samples=n_samples)
@@ -149,39 +153,49 @@ def _gym_training_loop(
     obs, info = env.reset(seed=seed)
     global_step = 0
     num_episodes = 0
-    reward_dim = env.get_wrapper_attr("reward_space").shape[0]
+    dims = envs.extract_env_dims(env)
+
 
     # Keep track of the history of the agent
     history_buffer = common.HistoryBuffer(
         total_timesteps=training_cfg.n_timesteps,
         eval_freq=training_cfg.eval_freq,
         n_eval_prefs=training_cfg.n_eval_prefs,
-        obs_dim=env.observation_space.shape[0],
-        reward_dim=reward_dim,
-        action_dim=env.action_space.shape[0],
+        obs_dim=dims["obs_dim"],
+        reward_dim=dims["reward_dim"],
+        action_dim=dims["action_dim"]
     )
 
     # Store the dynamic network weights
     dynamic_net_params = []
-    static_pref = _get_static_preference(reward_dim, device=agent.device)
+    static_pref = _get_static_preference(
+            dims["reward_dim"], device=agent.device
+    )
     static_obs = _get_static_obs(training_cfg.env_id, device=agent.device)
 
     # Create the preferences that are used later for evaluating the agent.
     eval_prefs = torch.tensor(
-        common.get_equally_spaced_weights(reward_dim, training_cfg.n_eval_prefs),
+        common.get_equally_spaced_weights(
+            dims["reward_dim"], training_cfg.n_eval_prefs
+        ),
         device=agent.device,
         dtype=torch.float32,
     )
-
-    for ts in range(training_cfg.n_timesteps):
-        global_step += 1
-
+        
+    start_time = time.perf_counter()
+    for ts in range(0, training_cfg.n_timesteps, training_cfg.num_envs):
+        global_step += training_cfg.num_envs
+        
+        # If this is the first step, or if the preferences are sampled 
+        # at every timestep, select a preference
         if (
-            global_step == 1
+            global_step == training_cfg.num_envs
             or training_cfg.pref_sampling_freq == PrefSamplerFreq.timestep
         ):
 
-            prefs = _sample_preferences(global_step, n_samples=1)
+            prefs = _sample_preferences(
+                global_step, n_samples=training_cfg.num_envs
+            )
 
         if global_step < training_cfg.n_random_steps:
             action = torch.tensor(
@@ -226,10 +240,13 @@ def _gym_training_loop(
 
         #  === Evaluate the current policy ===
         if global_step % training_cfg.eval_freq == 0:
+            # If using multiple environments, there are multiple preferences,
+            # so just choose one of them.
+            tmp_prefs = prefs[0, :] if prefs.ndim == 2 else prefs
             eval_info = evaluation.eval_policy(
                 agent,
                 training_cfg.env_id,
-                prefs=prefs,
+                prefs=tmp_prefs,
                 n_episodes=training_cfg.n_eval_episodes,
             )
             log.log_eval_info(
@@ -238,6 +255,12 @@ def _gym_training_loop(
 
         # === evaluate the policy on the evaluation preferences ===
         if global_step % (training_cfg.eval_freq * 5) == 0:
+
+            # Steps per second
+            stop_time = time.perf_counter()
+            sps = global_step / (stop_time - start_time)
+
+
             eval_data = [
                 evaluation.eval_policy(
                     agent,
@@ -262,8 +285,10 @@ def _gym_training_loop(
             log.log_mo_metrics(
                 current_front=avg_returns,
                 ref_point=training_cfg.ref_point,
-                reward_dim=reward_dim,
+                reward_dim=dims["reward_dim"],
                 global_step=global_step,
+                total_timesteps=training_cfg.n_timesteps,
+                sps=sps,
                 ref_set=np.asarray(training_cfg.ref_set),
                 wandb_run=wandb_run,
                 logger=logger,
@@ -281,14 +306,23 @@ def _gym_training_loop(
             path = pathlib.Path(training_cfg.save_path)
             agent.save(path / f"msa_hyper_{global_step}.tar")
 
-        if terminated or truncated:
-            num_episodes += 1
+        if isinstance(terminated, np.ndarray):
+            done = terminated.any() or truncated.any()
+            new_episodes = (terminated | truncated).sum()
+        else:
+            done = terminated or truncated
+            new_episodes = 1
+        
+        if done:
+            num_episodes += new_episodes
             log.log_episode_stats(
                 info, prefs=prefs, global_step=global_step, logger=logger
             )
 
             if training_cfg.pref_sampling_freq == PrefSamplerFreq.episode:
-                prefs = _sample_preferences(global_step, n_samples=1)
+                prefs = _sample_preferences(
+                        global_step, n_samples=training_cfg.num_episodes
+                )
             obs, info = env.reset()
         else:
             obs = next_obs

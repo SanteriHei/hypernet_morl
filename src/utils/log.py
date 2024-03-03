@@ -141,9 +141,9 @@ def log_eval_info(
     if logger is not None:
         logger.info(
             (f"{global_step} | "
-             f"Scalar return: {eval_info['avg_scalarized_returns']:.3f} | "
+             f"Scalar return: {float(eval_info['avg_scalarized_returns']):.3f} | "
              "Discounted scalar return: "
-             f"{eval_info['avg_scalarized_discounted_returns']:.3f}")
+             f"{float(eval_info['avg_scalarized_discounted_returns']):.3f}")
         )
 
 
@@ -152,6 +152,8 @@ def log_mo_metrics(
         ref_point: List[float],
         reward_dim: int,
         global_step: int,
+        total_timesteps: int,
+        sps: float,
         wandb_run: WandbRun | None = None,
         logger: logging.Logger | None = None,
         ref_set: npt.NDArray | None = None,
@@ -222,9 +224,11 @@ def log_mo_metrics(
 
     # If logger is provided, log also to it.
     if logger is not None:
+        prop = 100.0 * (global_step / total_timesteps)
         info_text = (
-                f"{global_step} | Hypervolume: {hypervol:.3f} | Sparsity "
-                f"{sparsity:.3f} | EUM {eum:.3f}"
+                f"{global_step} ({prop:.2f}%) | SPS: {sps:.2f} | "
+                f"Hypervolume: {hypervol:.3f} | Sparsity {sparsity:.3f} "
+                f"| EUM {eum:.3f}"
         )
         if igd_plus_max is not None:
             info_text = (
@@ -271,45 +275,62 @@ def log_episode_stats(
         )
         return
 
+    if isinstance(prefs, torch.Tensor):
+        prefs = np.atleast_2d(prefs.detach().cpu().numpy())
+
     # Otherwise, log the same metrics as in the morl-baselines for easy
     # comparisons
-    episode_info = info["episode"]
-    episode_ts = episode_info["l"]
-    episode_time = episode_info["t"]
-    episode_return = episode_info["r"]
-    disc_episode_return = episode_info["dr"]
 
-    if isinstance(prefs, torch.Tensor):
-        prefs = prefs.detach().cpu().numpy()
-    scalar_return = np.dot(episode_return, prefs)
-    disc_scalar_return = np.dot(disc_episode_return, prefs)
+    # If one is using vectorized environments, the results are 2D numpy arrays,
+    # and the relevant ones must be exported.
+
+    episode_info = info["episode"]
+    # This will exists only in the vectorized environments
+    if "_final_info" in info:
+        # If there are multiple items, just log the first ones
+        mask = info["_final_info"]
+        episode_ts = episode_info["l"][mask]
+        episode_time = episode_info["t"][mask]
+        episode_return = episode_info["r"][mask]
+        disc_episode_return = episode_info["dr"][mask]
+    else:
+        episode_ts = np.atleast_2d(episode_info["l"])
+        episode_time = np.atleast_2d(episode_info["t"])
+        episode_return = np.atleast_2d(episode_info["r"])
+        disc_episode_return =np.atleast_2d(episode_info["dr"])
     
-    if wandb_run is not None:
-        wandb_run.log(
-            {
-                "charts/timesteps_per_episode": episode_ts,
-                "charts/episode_time": episode_time,
-                "charts/scalarized_episode_return": scalar_return,
-                "charts/discounted_scalarized_episode_return": disc_scalar_return,
-                "global_step": global_step
-            },
-            commit=False
-        )
-        for i in range(episode_return.shape[0]):
+    for i in range(episode_ts.shape[0]):
+        scalar_return = np.dot(episode_return[i, :], prefs[i, :])
+        disc_scalar_return = np.dot(disc_episode_return[i, :], prefs[i, :])
+
+        if wandb_run is not None:
             wandb_run.log(
                 {
-                    f"metrics/episode_return_obj_{i}": episode_return[i],
-                    f"metrics/disc_episode_return_obj_{i}": disc_episode_return[i]
-                }
+                    "charts/timesteps_per_episode": episode_ts[i],
+                    "charts/episode_time": episode_time[i],
+                    "charts/scalarized_episode_return": scalar_return,
+                    "charts/discounted_scalarized_episode_return": disc_scalar_return,
+                    "global_step": global_step
+                },
+                commit=False
             )
+            for ii in range(episode_return.shape[0]):
+                wandb_run.log(
+                    {
+                        f"metrics/episode_return_obj_{i}": episode_return[i, ii],
+                        f"metrics/disc_episode_return_obj_{i}": disc_episode_return[i, ii]
+                    }
+                )
 
-    # If the logger is provided, the stats will be also logged to it.
-    if logger is not None:
-        logger.info(
-            (f"{global_step} | Timesteps/ep {episode_ts} | Ep scalar return "
-             f"{scalar_return:.3f} | "
-             f"Ep disc scalar return {disc_scalar_return:.3f}")
-        )
+        # If the logger is provided, the stats will be also logged to it.
+        if logger is not None:
+            sps = float(episode_ts[i]/episode_time[i])
+            logger.info(
+                (f"{global_step} | Timesteps/ep {episode_ts[i].item()} "
+                 f"| SPS {sps:.2f} "
+                 f"| Ep scalar return {scalar_return:.3f} "
+                 f"| Ep disc scalar return {disc_scalar_return:.3f}")
+            )
 
 
 def get_logger(logger_name: str) -> logging.Logger:

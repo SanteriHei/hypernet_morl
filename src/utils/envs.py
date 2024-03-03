@@ -101,6 +101,36 @@ class MOAsyncVectorEnv(AsyncVectorEnv):
         self._rewards = batch_space(self.reward_space, self.num_envs)
 
 
+def extract_env_dims(env: gym.Env) -> Dict[str, int]:
+    """Extract environment space dimensions, taking into account the 
+    vectorized environments.
+
+    Parameters
+    ----------
+    env : gym.Env
+        The environment to look at.
+
+    Returns
+    -------
+    Dict[str, int]
+        The observation dimension, action dimension and reward dimension of the
+        corresponding SINGLE environment
+    """
+    is_vec_env = env.get_wrapper_attr("is_vector_env")
+    if is_vec_env:
+        return {
+            "obs_dim": env.get_wrapper_attr("single_observation_space").shape[0],
+            "action_dim": env.get_wrapper_attr("single_action_space").shape[0],
+            "reward_dim": env.reward_space.shape[0]
+        }
+
+    return {
+        "obs_dim": env.observation_space.shape[0],
+        "action_dim": env.action_space.shape[0],
+        "reward_dim": env.reward_space.shape[0]
+    }
+
+
 def create_env(
         env_id: str, device: str | torch.device, **kwargs: Dict[str, Any]
     ) -> gym.Env:
@@ -132,8 +162,9 @@ def create_env(
     return env
 
 
+
 def create_vec_envs(
-        env_id, device: str | torch.device, n_envs: int = 5,
+        env_id: str, device: str | torch.device, n_envs: int = 5,
         asynchronous: bool = True
 ) -> VectorEnv:
 
@@ -158,13 +189,20 @@ def create_vec_envs(
     """
     if asynchronous:
         envs = MOAsyncVectorEnv([
-            lambda env_id: mo_gym.make(env_id, autoreset = True) 
-            for _ in range(n_envs)
+            _create_env(env_id) for _ in range(n_envs)
         ])
     else:
         envs = mo_gym.MOSyncVectorEnv([
-            lambda env_id: mo_gym.make(env_id) for _ in range(n_envs)
+            _create_env(env_id) for _ in range(n_envs)
         ])
     envs = mo_gym.MORecordEpisodeStatistics(envs)
-    envs = mo_gym.TorchWrapper(envs, device=device)
+    envs = TorchWrapper(envs, device=device)
     return envs
+
+
+def _create_env(env_id: str) -> Callable:
+    def _thunk():
+        env = mo_gym.make(env_id)
+        env = gym.wrappers.AutoResetWrapper(env)
+        return env
+    return _thunk
