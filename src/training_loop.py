@@ -94,6 +94,11 @@ def train_agent(cfg: structured_configs.Config, agent):
 
     if cfg.training_cfg.save_path is not None:
 
+        # Record videos of the model performance
+        evaluation.record_video(
+                agent, cfg.training_cfg.env_id, cfg.training_cfg.save_path
+        )
+
         save_dir_path = pathlib.Path(cfg.training_cfg.save_path)
     
         model_path = save_dir_path / "msa_hyper_final.tar"
@@ -326,7 +331,7 @@ def _gym_training_loop(
             obs, info = env.reset()
         else:
             obs = next_obs
-
+    
     pfront, non_dom_pfront = history_buffer.pareto_front_to_json()
     # Finally, store the pareto-front to the wandb
     if wandb_run is not None:

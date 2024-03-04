@@ -1,20 +1,56 @@
+import pathlib
 from typing import Dict
 
+import gymnasium as gym
 import mo_gymnasium as mo_gym
 import numpy as np
 import numpy.typing as npt
+import pymoo.util.ref_dirs
 import torch
 
 
+def record_video(agent, env_id: str, save_dir: str | pathlib.Path, n_prefs: int = 5):
+    """Record video of the given agent with different preferences.
+
+    Parameters
+    ----------
+    agent : Any
+        The agent to train.
+    env_id : str
+        The id of the used environment.
+    save_dir : str | pathlib.Path
+        Path to the directory where the videos will be stored to.
+    n_prefs : int, optional
+        The amount of preferences to test the agent on. Default 5.
+    """
+    dummy_env = mo_gym.make(env_id, render_mode="rgb_array")
+    eval_prefs = pymoo.util.ref_dirs.get_reference_directions(
+        "energy", dummy_env.get_wrapper_attr("reward_space").shape[0], n_prefs, seed=42
+    )
+    dummy_env.close()
+
+    for i, pref in enumerate(eval_prefs):
+        prefix = f"pref_{i}_"
+        env = gym.wrappers.RecordVideo(
+            mo_gym.make(env_id, render_mode="rgb_array"),
+            name_prefix=prefix,
+            video_folder=save_dir,
+        )
+        th_pref = torch.atleast_2d(
+                torch.from_numpy(pref).float().to(agent.device)
+        )
+        _ = eval_agent(agent, env, th_pref)
+        env.close()
+
+
 def eval_agent(
-        agent, env_id: str,
-        prefs: torch.Tensor, gamma: float = 1.0
+    agent, env: gym.Env, prefs: torch.Tensor, gamma: float = 1.0
 ) -> Dict[str, float | npt.NDArray]:
     """Evaluate the given agent for a single episode in the given environment.
 
     Parameters
     ----------
-    agent : 
+    agent :
         The agent to evaluate.
     env_id : str
         The id of the evaluation environment.
@@ -26,17 +62,17 @@ def eval_agent(
     Returns
     -------
     Dict[str, float | npt.NDArray]
-        Returns the scalarized returns, scalarized discounted returns, 
+        Returns the scalarized returns, scalarized discounted returns,
         returns and the discounted returns.
     """
-    env = mo_gym.make(env_id)
+    # Reset env
     obs, info = env.reset()
 
     # Ensure that inputs for agent have batch dimension
     th_obs = torch.atleast_2d(torch.tensor(obs).float().to(agent.device))
-    
+
     done = False
-        
+
     np_prefs = prefs.detach().cpu().numpy()
     returns = np.zeros_like(np_prefs.squeeze())
     discounted_returns = np.zeros_like(np_prefs.squeeze())
@@ -59,19 +95,19 @@ def eval_agent(
         "scalarized_returns": scalarized_returns,
         "scalarized_discounted_returns": scalarized_disc_returns,
         "returns": returns,
-        "discounted_returns": discounted_returns
+        "discounted_returns": discounted_returns,
     }
 
 
 def eval_policy(
-        agent, env_id: str,  *, prefs: torch.Tensor, n_episodes: int = 5
+    agent, env_id: str, *, prefs: torch.Tensor, n_episodes: int = 5
 ) -> Dict[str, float | npt.NDArray]:
-    """Evaluate the given policy for 'n_reps' times, and calculate the 
+    """Evaluate the given policy for 'n_reps' times, and calculate the
     average statistics from the evaluation.
 
     Parameters
     ----------
-    agent : 
+    agent :
         The agent to evaluate.
     env_id : str
         The id of the evaluation environment.
@@ -91,10 +127,10 @@ def eval_policy(
     agent.set_mode(train_mode=False)
     prefs = torch.atleast_2d(prefs)
     gamma = agent.config.gamma
-    evals = [
-            eval_agent(agent, env_id, prefs, gamma=gamma)
-            for _ in range(n_episodes)
-    ]
+
+    eval_env = mo_gym.make(env_id)
+    evals = [eval_agent(agent, eval_env, prefs, gamma=gamma) for _ in range(n_episodes)]
+    eval_env.close()
     agent.set_mode(train_mode=True)
 
     # Convert list of dicts into dict of lists
