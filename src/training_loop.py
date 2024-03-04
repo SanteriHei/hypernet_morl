@@ -61,7 +61,8 @@ def train_agent(cfg: structured_configs.Config, agent):
         cfg.critic_cfg.reward_dim,
         device=agent.device,
         seed=cfg.seed,
-        angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg),
+        **cfg.training_cfg.sampler_kwargs
+        # angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg),
     )
     warmup_sampler = common.get_preference_sampler(
             "static",
@@ -201,7 +202,7 @@ def _gym_training_loop(
             prefs = _sample_preferences(
                 global_step, n_samples=training_cfg.num_envs
             )
-
+        
         if global_step < training_cfg.n_random_steps:
             action = torch.tensor(
                 env.action_space.sample(), device=agent.device, dtype=torch.float32

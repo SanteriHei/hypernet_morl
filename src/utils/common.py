@@ -130,6 +130,8 @@ def get_preference_sampler(
             sampler = UniformSampler(reward_dim, device=device, seed=seed, **kwargs)
         case "static":
             sampler = StaticSampler(reward_dim, device=device, seed=seed, **kwargs)
+        case "single":
+            sampler = SingleSampler(reward_dim, device=device, seed=seed, **kwargs)
         case _:
             raise ValueError(
                 (
@@ -137,11 +139,21 @@ def get_preference_sampler(
                     "be one of 'normal', 'uniform' or 'static'"
                 )
             )
-
     return sampler
 
 
 def set_thread_count(device: str | torch.device, n_threads: int):
+    """
+    Set the used thread count for Pytorch. NOTE: has effect only if the 
+    device is CPU.
+
+    Parameters
+    ----------
+    device : str | torch.device
+        The device used for the computations.
+    n_threads : int
+        The number of threads used for the computations.
+    """
     if (isinstance(device, torch.device) and device.type == "cpu") or device == "cpu":
         torch.set_num_threads(n_threads)
 
@@ -218,6 +230,60 @@ def get_equally_spaced_weights(
     return pymoo.util.ref_dirs.get_reference_directions(
         name="energy", n_dim=dim, n_points=n_points, seed=seed
     )
+
+
+class SingleSampler:
+
+    def __init__(
+            self,
+            reward_dim: int,
+            device: str | torch.device | None = None,
+            **kwargs: Mapping[str, Any]
+    ):
+        self._reward_dim = reward_dim
+        self._device = torch.device("cpu" if device is None else device)
+
+        pref = kwargs.pop("pref", None)
+        if pref is None:
+            pref = torch.rand(
+                    self._reward_dim, dtype=torch.float32, device=self._device
+            )
+            pref = pref / torch.linalg.norm(pref, ord=1)
+        else:
+            pref = torch.tensor(pref, dtype=torch.float32, device=self._device)
+
+        if ((tot_sum := pref.sum()) - 1.0).abs() > 1e-15:
+            warnings.warn(
+                    f"Given preference {pref} doesn't sum to 1 ({tot_sum:.3f})"
+            )
+        self._pref = pref
+
+    @property
+    def reward_dim(self) -> int:
+        """Return the used reward dimensionality"""
+        return self._reward_dim
+
+    @property
+    def device(self) -> torch.device:
+        """Return the currently used device"""
+        return self._device
+
+    def sample(self, n_samples: int = 1) -> torch.Tensor:
+        """Sample a new preference.
+
+        Parameters
+        ----------
+        n_samples : int
+            The amount of preferences to sample
+
+        Returns
+        -------
+        torch.Tensor
+            The sampled preferences.
+        """
+        if n_samples == 1:
+            return self._pref
+        return torch.stack([self._pref for _ in range(n_samples)])
 
 
 class StaticSampler:
@@ -410,7 +476,6 @@ class UniformSampler:
                 (prefs.sum(axis=-1) - 1).abs() < 1e-7
             ).all(), f"Not all prefs sum to one: ({prefs.sum(axis=-1).min()}, {prefs.sum(axis=-1).max()})"
             return prefs
-            # return torch.concat((pref_0, pref_1), axis=-1)
 
         # Otherwise, just sample the preferences from the uniform distribution
         # and normalize them.
@@ -428,7 +493,7 @@ class PreferenceSampler:
     def __init__(
         self,
         reward_dim: int,
-        angle_rad: float,
+        angle_deg: float,
         w: npt.NDArray | torch.Tensor | None = None,
         device: str | torch.device | None = None,
         seed: int | None = None,
@@ -441,8 +506,8 @@ class PreferenceSampler:
         ----------
         reward_dim : int
             The dimension of the rewards.
-        angle_rad : float
-            The angle that is used to restrict the weight sampling (in radians)
+        angle_deg : float
+            The angle that is used to restrict the weight sampling (in degrees)
         w : [TODO:parameter]
             [TODO:description]
         device: str | torch.device | None, optional
@@ -452,8 +517,7 @@ class PreferenceSampler:
             The seed used to initialize the PRNG. Default None.
         """
         self._reward_dim = reward_dim
-        self._angle = angle_rad
-
+        self._angle = deg_to_rad(angle_deg)
         self._device = torch.device("cpu" if device is None else device)
 
         # Use a generator to manage the random state instead of the global PRNG

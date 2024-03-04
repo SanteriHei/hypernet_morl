@@ -9,7 +9,9 @@ import pymoo.util.ref_dirs
 import torch
 
 
-def record_video(agent, env_id: str, save_dir: str | pathlib.Path, n_prefs: int = 5):
+def record_video(
+        agent, env_id: str, save_dir: str | pathlib.Path, n_prefs: int = 5
+):
     """Record video of the given agent with different preferences.
 
     Parameters

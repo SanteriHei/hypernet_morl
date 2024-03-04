@@ -7,7 +7,8 @@ env_id: "mo-swimmer-v4-fork"
 save_path: ???
 batch_size: 128
 buffer_capacity: 1_000_000
-angle_deg: 45
+sampler_kwargs:
+  angle_deg: 45
 n_warmup_steps : "${imult:0.2, ${.n_timesteps}}"
 eval_freq: 500
 log_freq: 100

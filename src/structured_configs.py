@@ -321,7 +321,9 @@ class TrainingConfig:
     # Sampler
     sampler_type: str = "normal"
     pref_sampling_freq: PrefSamplerFreq = "timestep"
-    angle_deg: float = 45
+
+    sampler_kwargs: Dict[str, Any] = field(default_factory=lambda: {})
+    #  angle_deg: float = 45
 
     # Warmup sampler
     warmup_use_uneven_sampling: bool = False
