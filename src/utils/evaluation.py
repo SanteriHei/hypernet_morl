@@ -1,3 +1,4 @@
+import os
 import pathlib
 from typing import Dict
 
@@ -25,24 +26,45 @@ def record_video(
     n_prefs : int, optional
         The amount of preferences to test the agent on. Default 5.
     """
-    dummy_env = mo_gym.make(env_id, render_mode="rgb_array")
-    eval_prefs = pymoo.util.ref_dirs.get_reference_directions(
-        "energy", dummy_env.get_wrapper_attr("reward_space").shape[0], n_prefs, seed=42
-    )
-    dummy_env.close()
 
-    for i, pref in enumerate(eval_prefs):
-        prefix = f"pref_{i}_"
-        env = gym.wrappers.RecordVideo(
-            mo_gym.make(env_id, render_mode="rgb_array"),
-            name_prefix=prefix,
-            video_folder=save_dir,
+    def _record_video_impl():
+        dummy_env = mo_gym.make(env_id, render_mode="rgb_array")
+        eval_prefs = pymoo.util.ref_dirs.get_reference_directions(
+            "energy", dummy_env.get_wrapper_attr("reward_space").shape[0], 
+            n_prefs, seed=42
         )
-        th_pref = torch.atleast_2d(
-                torch.from_numpy(pref).float().to(agent.device)
-        )
-        _ = eval_agent(agent, env, th_pref)
-        env.close()
+        dummy_env.close()
+
+        for i, pref in enumerate(eval_prefs):
+            prefix = f"pref_{i}_"
+            env = gym.wrappers.RecordVideo(
+                mo_gym.make(env_id, render_mode="rgb_array"),
+                name_prefix=prefix,
+                video_folder=save_dir,
+            )
+            th_pref = torch.atleast_2d(
+                    torch.from_numpy(pref).float().to(agent.device)
+            )
+            _ = eval_agent(agent, env, th_pref)
+            env.close()
+    
+    # Check if the program is run on headless mode or not
+    display = os.environ.get("DISPLAY", None)
+    
+    # If DISPLAY is set, the environment should not be headless,
+    # and video can be recorded as usual
+    if display is not None:
+        _record_video_impl()
+    
+    # Otherwise, try to run using a virtual X Frame-buffer
+    else:
+        # This can fail in many ways, os use the catch all exception handler
+        try:
+            from xvfbwrapper import Xvfb
+            with Xvfb() as xvfb:
+                _record_video_impl()
+        except Exception as e:
+            print(f"Error while trying to record a video in headless: ({e}).")
 
 
 def eval_agent(

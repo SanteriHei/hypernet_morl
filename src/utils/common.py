@@ -490,13 +490,15 @@ class UniformSampler:
 
 
 class PreferenceSampler:
+    
+    _DEFAULT_ANGLE_DEG: float = 45.0
     def __init__(
         self,
         reward_dim: int,
-        angle_deg: float,
         w: npt.NDArray | torch.Tensor | None = None,
         device: str | torch.device | None = None,
         seed: int | None = None,
+        **kwargs: Mapping[str, Any]
     ):
         """Create a simple preference sampler that can be used to
         sample normalized preferences from a (possibly) restricted part of the
@@ -517,6 +519,13 @@ class PreferenceSampler:
             The seed used to initialize the PRNG. Default None.
         """
         self._reward_dim = reward_dim
+
+        if "angle_deg" not in kwargs:
+            warnings.warn(("'angle_deg' not specified for preference samnpler! "
+                           f"Using {self._DEFAULT_ANGLE_DEG} deg angle as default"))
+            angle_deg = self._DEFAULT_ANGLE_DEG
+        else:
+            angle_deg = kwargs.pop("angle_deg")
         self._angle = deg_to_rad(angle_deg)
         self._device = torch.device("cpu" if device is None else device)
 
