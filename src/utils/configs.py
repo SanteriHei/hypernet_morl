@@ -49,7 +49,7 @@ def register_resolvers():
     )
 
     omegaconf.OmegaConf.register_new_resolver(
-        name="network.input_dim", resolver=_resolve_input_dim_v2
+        name="network.input_dim", resolver=_resolve_input_dim
     )
 
 
@@ -180,6 +180,18 @@ def _resolve_action_space_high(env_id: str) -> List[float]:
 
 
 def _resolve_json(filepath: str) -> List[List[float]]:
+    """Resolves json to an 2D array.
+
+    Parameters
+    ----------
+    filepath : str
+        The path to the json file.
+
+    Returns
+    -------
+    List[List[float]]
+        The 2D array as list of lists.
+    """
     filepath = pathlib.Path(filepath)
     if not filepath.exists() or not filepath.is_file():
         raise ValueError(f"{str(filepath)!r} does not point to a valid file!")
@@ -188,7 +200,22 @@ def _resolve_json(filepath: str) -> List[List[float]]:
     return [[point["x"], point["y"]] for point in payload]
 
 
-def _resolve_input_dim_v2(input_list: List[str], env_id: str) -> int:
+def _resolve_input_dim(input_list: List[str], env_id: str) -> int:
+    """Resolve the input dimension of a network based on the named inputs
+    for it.
+
+    Parameters
+    ----------
+    input_list : List[str]
+        The inputs the network is taking.
+    env_id : str
+        The id of the used environment.
+
+    Returns
+    -------
+    int
+        The dimensionality of the input for the network.
+    """
     tmp_env = mo_gym.make(env_id)
     reward_dim = tmp_env.get_wrapper_attr("reward_space").shape[0]
     action_dim = tmp_env.action_space.shape[0]
@@ -205,39 +232,6 @@ def _resolve_input_dim_v2(input_list: List[str], env_id: str) -> int:
             case "action":
                 input_dim += action_dim
     return input_dim
-
-
-def _resolve_input_dim(use_input_1, use_input_2, input_dim_1, input_dim_2) -> int:
-    """Resolve the input dimension of a given network
-
-    Parameters
-    ----------
-    use_input_1 : bool
-        Determines if the input 1 is used.
-    use_input_2 : bool
-        Determines if the input 2 is used.
-    input_dim_1 : int
-        The dimensionality of the input 1.
-    input_dim_2 : int
-        The dimensionality of the input 2.
-
-    Returns
-    -------
-    int
-        The input dimension for the network
-        Returns -1 if no inputs where provided.
-    """
-    out = None
-
-    if use_input_1 and use_input_2:
-        out = input_dim_1 + input_dim_2
-    elif use_input_1:
-        out = input_dim_1
-    elif use_input_2:
-        out = input_dim_2
-    else:
-        out = -1
-    return out
 
 
 def as_structured_config(cfg: omegaconf.DictConfig) -> Any:

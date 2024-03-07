@@ -695,6 +695,8 @@ class HistoryBuffer:
         self._step_ptr = 0
 
         n_points = (total_timesteps // (eval_freq * 5)) * n_eval_prefs
+        self._avg_disc_returns = np.empty((n_points, reward_dim), dtype=np.float64)
+        self._sd_disc_returns = np.empty((n_points, reward_dim), dtype=np.float64)
         self._avg_returns = np.empty((n_points, reward_dim), dtype=np.float64)
         self._sd_returns = np.empty((n_points, reward_dim), dtype=np.float64)
         self._global_step = np.empty((n_points,), dtype=np.uint64)
@@ -762,41 +764,44 @@ class HistoryBuffer:
                     done=done,
                     episode=episode
                 )
-        # self._obs[self._step_ptr, ...] = obs
-        # self._actions[self._step_ptr, ...] = action
-        # self._prefs[self._step_ptr, ...] = prefs
-        # self._rewards[self._step_ptr, ...] = rewards
-        # self._next_obs[self._step_ptr, ...] = next_obs
-        # self._dones[self._step_ptr] = done
-        # self._episodes[self._step_ptr] = episode
-        # self._step_ptr += 1
 
     def append_avg_returns(
-        self, avg_returns: List[float], sd_returns: List[float], step: int
+        self, *, 
+        avg_disc_returns: List[float], 
+        sd_disc_returns: List[float], 
+        avg_returns: List[float],
+        sd_returns: List[float],
+        step: int
     ):
         """Append new average returns from the evaluation of the agent.
 
         Parameters
         ----------
-        avg_returns : List[float]
+        avg_disc_returns : List[float]
             The average returns from the evaluation.
-        sd_returns : List[float]
+        sd_disc_returns : List[float]
             The standard deviations of the returns from the evaluation.
         step : int
             The step at which the agent was evaluated.
         """
+        avg_disc_returns = np.asarray(avg_disc_returns)
+        sd_disc_returns = np.asarray(sd_disc_returns)
         avg_returns = np.asarray(avg_returns)
         sd_returns = np.asarray(sd_returns)
+
         end_idx = self._point_ptr + avg_returns.shape[0]
-        assert end_idx <= self._sd_returns.shape[0], (
+        assert end_idx <= self._sd_disc_returns.shape[0], (
             "Overindexing! has store for "
-            f"{self._sd_returns.shape[0]} points, "
+            f"{self._sd_disc_returns.shape[0]} points, "
             f"tried to fit {end_idx} "
             "points instead!"
         )
 
+        self._avg_disc_returns[self._point_ptr : end_idx, :] = avg_disc_returns
+        self._sd_disc_returns[self._point_ptr : end_idx, :] = sd_disc_returns
         self._avg_returns[self._point_ptr : end_idx, :] = avg_returns
         self._sd_returns[self._point_ptr : end_idx, :] = sd_returns
+
         self._global_step[self._point_ptr : end_idx] = step
         self._point_ptr = end_idx
 
@@ -825,9 +830,15 @@ class HistoryBuffer:
         )
 
     def pareto_front_to_json(
-        self,
+        self, use_discounted_returns: bool = True
     ) -> Tuple[List[Dict[str, float | int]], List[Dict[str, float | int]]]:
         """Convert the pareto-front data into json format.
+
+        Parameters
+        ----------
+        use_discounted_returns: bool, optional
+            If set to true, discounted returns will be used. Otherwise, the 
+            raw returns are returned.
 
         Returns
         -------
@@ -862,23 +873,32 @@ class HistoryBuffer:
         idx = np.concatenate(
             (np.asarray([0]), idx, np.asarray([self._global_step.shape[0]])), axis=0
         )
+    
+        # Select the approriate returns
+        if use_discounted_returns:
+            avg_returns = self._avg_disc_returns
+            sd_returns = self._sd_disc_returns
+        else:
+            avg_returns = self._avg_returns
+            sd_returns = self._sd_returns
+
         for i in range(idx.shape[0] - 1):
             start_idx = idx[i]
             end_idx = idx[i + 1]
-            avg_returns = self._avg_returns[start_idx:end_idx, :]
-            return_sds = self._sd_returns[start_idx:end_idx, :]
+            selected_returns = avg_returns[start_idx:end_idx, :]
+            return_sds = sd_returns[start_idx:end_idx, :]
             global_steps = self._global_step[start_idx:end_idx]
 
             # Store the unfiltered pareto-front
-            json_pfront = _pfront_to_json(avg_returns, return_sds, global_steps)
+            json_pfront = _pfront_to_json(selected_returns, return_sds, global_steps)
             pareto_front.extend(json_pfront)
 
             # Store the pareto-front containing only the non-dominated
             # indices
             non_dom_inds = pareto.get_non_pareto_dominated_inds(
-                avg_returns, remove_duplicates=True
+                selected_returns, remove_duplicates=True
             )
-            non_dom_avg_returns = avg_returns[non_dom_inds, :]
+            non_dom_avg_returns = selected_returns[non_dom_inds, :]
             non_dom_return_sds = return_sds[non_dom_inds, :]
             non_dom_steps = global_steps[non_dom_inds]
             json_non_dom_pfront = _pfront_to_json(
@@ -906,7 +926,6 @@ class HistoryBuffer:
         self._dones[self._step_ptr] = done
         self._episodes[self._step_ptr] = episode
         self._step_ptr += 1
-        pass
 
 
 class ReplayBuffer:

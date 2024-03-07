@@ -107,10 +107,28 @@ def train_agent(cfg: structured_configs.Config, agent):
             logger.info(f"Saving trained model to {cfg.training_cfg.save_path}")
 
         trained_agent.save(model_path)
-        pfront, non_dom_pfront = history_buffer.pareto_front_to_json()
+        
+        # Store the discounted returns for the evaluation preferences
+        eval_points, non_dom_pfront = history_buffer.pareto_front_to_json()
+        common.dump_json(
+            save_dir_path / "eval_points_disc_returns.json", eval_points
+        )
+        common.dump_json(
+            save_dir_path / "non_dom_pareto_front_disc_returns.json",
+            non_dom_pfront
+        )
+    
+        # Store also the raw returns for the evaluation preferences
+        eval_points, non_dom_pfront = history_buffer.pareto_front_to_json(
+                use_discounted_returns=False
+        )
+        common.dump_json(
+            save_dir_path / "eval_points_returns.json", eval_points
+        )
+        common.dump_json(
+            save_dir_path / "non_dom_pareto_front_returns.json", non_dom_pfront
+        )
 
-        common.dump_json(save_dir_path / "pareto-front.json", pfront)
-        common.dump_json(save_dir_path / "non_dom_pareto_front.json", non_dom_pfront)
         history_buffer.save_history(save_dir_path / "history.npz")
 
         for obj in dynamic_net_params:
@@ -277,19 +295,27 @@ def _gym_training_loop(
                 for prefs in eval_prefs
             ]
 
-            avg_returns, sd_returns = zip(
+            avg_disc_returns, sd_disc_returns, avg_returns, sd_returns = zip(
                 *map(
                     lambda elem: [
                         elem["avg_discounted_returns"],
                         elem["std_discounted_returns"],
+                        elem["avg_returns"],
+                        elem["std_returns"]
                     ],
                     eval_data,
                 )
             )
-            history_buffer.append_avg_returns(avg_returns, sd_returns, global_step)
+            history_buffer.append_avg_returns(
+                    avg_disc_returns=avg_disc_returns, 
+                    sd_disc_returns=sd_disc_returns, 
+                    avg_returns=avg_returns,
+                    sd_returns=sd_returns,
+                    step=global_step
+            )
 
             log.log_mo_metrics(
-                current_front=avg_returns,
+                current_front=avg_disc_returns,
                 ref_point=training_cfg.ref_point,
                 reward_dim=dims["reward_dim"],
                 global_step=global_step,
@@ -472,24 +498,24 @@ def _log_pareto_front(
             lambda x: x["global_step"] % step_freq == 0, pfront_table
     )
 
-    pareto_data = list(map(_row_to_list, pfront_table))
+    eval_point_data = list(map(_row_to_list, pfront_table))
     non_dom_pareto_data = list(map(_row_to_list, non_dom_pfront_table))
 
-    pareto_table = wandb.Table(
+    eval_point_table = wandb.Table(
         columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2"],
-        data=pareto_data,
+        data=eval_point_data,
     )
     non_dom_pareto_table = wandb.Table(
         columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2"],
         data=non_dom_pareto_data,
     )
 
-    wandb_run.log({"eval/pareto-front": pareto_table})
-    wandb_run.log({"eval/non-dom-pareto-front": non_dom_pareto_table})
+    wandb_run.log({"eval/pareto-front": non_dom_pareto_table})
+    wandb_run.log({"eval/eval-points": pareto})
 
     wandb_run.plot_table(
         vega_spec_name="santeriheiskanen/pareto-front/v3",
-        data_table=pareto_table,
+        data_table=eval_point_table,
         fields={
             "x": "avg_obj1",
             "y": "avg_obj2",
