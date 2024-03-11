@@ -1,7 +1,8 @@
-""" Define some helpers for the environments"""
+"""Define some helpers for the environments"""
+
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Sequence, Tuple
+from typing import Any, Callable, Dict, Mapping, Sequence, Tuple
 
 import gymnasium as gym
 import mo_gymnasium as mo_gym
@@ -102,7 +103,7 @@ class MOAsyncVectorEnv(AsyncVectorEnv):
 
 
 def extract_env_dims(env: gym.Env) -> Dict[str, int]:
-    """Extract environment space dimensions, taking into account the 
+    """Extract environment space dimensions, taking into account the
     vectorized environments.
 
     Parameters
@@ -121,19 +122,22 @@ def extract_env_dims(env: gym.Env) -> Dict[str, int]:
         return {
             "obs_dim": env.get_wrapper_attr("single_observation_space").shape[0],
             "action_dim": env.get_wrapper_attr("single_action_space").shape[0],
-            "reward_dim": env.reward_space.shape[0]
+            "reward_dim": env.reward_space.shape[0],
         }
 
     return {
         "obs_dim": env.observation_space.shape[0],
         "action_dim": env.action_space.shape[0],
-        "reward_dim": env.reward_space.shape[0]
+        "reward_dim": env.reward_space.shape[0],
     }
 
 
 def create_env(
-        env_id: str, device: str | torch.device, **kwargs: Dict[str, Any]
-    ) -> gym.Env:
+    env_id: str,
+    device: str | torch.device,
+    gamma: float = 1.0,
+    **kwargs: Dict[str, Any],
+) -> gym.Env:
     """Create new gymnasium enviroment and apply the neccessary wrappers to the
     enviroment.
 
@@ -143,6 +147,9 @@ def create_env(
         The id of the environment.
     device : str | torch.device
         The device to which the data should be moved to from the environment.
+    gamma: float, optional
+        The discount factor used when tracking the episode statistics.
+        Default 1.0
     kwargs: Dict[str, Any]
         Any possible extra keyword arguments passed to environment creation
         function
@@ -157,17 +164,19 @@ def create_env(
         device = torch.device(device)
 
     # Add normalizing
-    env = mo_gym.MORecordEpisodeStatistics(env)
+    env = mo_gym.MORecordEpisodeStatistics(env, ganna=gamma)
     env = TorchWrapper(env, device=device)
     return env
 
 
-
 def create_vec_envs(
-        env_id: str, device: str | torch.device, n_envs: int = 5,
-        asynchronous: bool = True
+    env_id: str,
+    device: str | torch.device,
+    gamma: float = 1.0,
+    n_envs: int = 5,
+    asynchronous: bool = True,
+    **kwargs: Mapping[str, Any]
 ) -> VectorEnv:
-
     """Creates vectorized environments with the required wrappers.
 
     Parameters
@@ -176,11 +185,17 @@ def create_vec_envs(
         The id for the used environment.
     device : str | torch.device
         The device at which the outputs from the environment will be placed to.
+    gamma: float, optional
+        The discount factor used when tracking the episode statistics.
+        Default 1.0
     n_envs : int, optional
         The amount environments to create. Default 5
     asynchronous : bool, optional
-        If set to True, the vectorized environments will be run in 
+        If set to True, the vectorized environments will be run in
         parallel, otherwise they are run in synchronized fashion. Default True.
+    kwargs: Mapping[str, Any]
+        Any additional arguments that will be passed down to the ´gym.make´
+        method.
 
     Returns
     -------
@@ -188,21 +203,22 @@ def create_vec_envs(
         'n_envs' copies of the environment in vectorized form.
     """
     if asynchronous:
-        envs = MOAsyncVectorEnv([
-            _create_env(env_id) for _ in range(n_envs)
-        ])
+        envs = MOAsyncVectorEnv(
+                [_create_env(env_id,  **kwargs) for _ in range(n_envs)]
+        )
     else:
-        envs = mo_gym.MOSyncVectorEnv([
-            _create_env(env_id) for _ in range(n_envs)
-        ])
-    envs = mo_gym.MORecordEpisodeStatistics(envs)
+        envs = mo_gym.MOSyncVectorEnv(
+                [_create_env(env_id,  **kwargs) for _ in range(n_envs)]
+        )
+    envs = mo_gym.MORecordEpisodeStatistics(envs, gamma=gamma)
     envs = TorchWrapper(envs, device=device)
     return envs
 
 
-def _create_env(env_id: str) -> Callable:
+def _create_env(env_id: str, **kwargs: Mapping[str, Any]) -> Callable:
     def _thunk():
-        env = mo_gym.make(env_id)
+        env = mo_gym.make(env_id, **kwargs)
         env = gym.wrappers.AutoResetWrapper(env)
         return env
+
     return _thunk
