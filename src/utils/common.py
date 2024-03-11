@@ -538,22 +538,11 @@ class HistoryBuffer:
             out = []
             for i in range(returns.shape[0]):
                 return_dct = {}
-                for ii in range(returns.shape[0]):
+                for ii in range(returns.shape[1]):
                     return_dct[f"avg_disc_return_{ii}"] = float(returns[i, ii])
                     return_dct[f"std_disc_return_{ii}"] = float(return_sds[i, ii])
                     return_dct[f"pref_{ii}"] = float(prefs[i, ii])
                 return_dct["global_step"] = int(steps[i])
-
-                # return_dct = {
-                #     f"avg_disc_return_{j}": float(returns[i, j])
-                #     for j in range(returns.shape[1])
-                # }
-                # return_sd_dct = {
-                #     f"std_disc_return_{j}": float(return_sds[i, j])
-                #     for j in range(return_sds.shape[1])
-                # }
-                # return_dct.update(return_sd_dct)
-                # return_dct.update({"global_step": int(steps[i])})
                 out.append(return_dct)
             return out
 

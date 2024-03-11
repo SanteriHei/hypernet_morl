@@ -73,8 +73,9 @@ def train_agent(cfg: structured_configs.Config, agent):
     )
 
     # Ensure that the saving directory exists
-    save_dir = pathlib.Path(cfg.training_cfg.save_path)
-    save_dir.mkdir(parents=True, exist_ok=True)
+    if cfg.training_cfg.save_path is not None:
+        save_dir = pathlib.Path(cfg.training_cfg.save_path)
+        save_dir.mkdir(parents=True, exist_ok=True)
 
     (
         trained_agent,
@@ -93,12 +94,6 @@ def train_agent(cfg: structured_configs.Config, agent):
     )
 
     if cfg.training_cfg.save_path is not None:
-
-        # Record videos of the model performance
-        evaluation.record_video(
-                agent, cfg.training_cfg.env_id, cfg.training_cfg.save_path
-        )
-
         save_dir_path = pathlib.Path(cfg.training_cfg.save_path)
     
         model_path = save_dir_path / "msa_hyper_final.tar"
@@ -137,6 +132,11 @@ def train_agent(cfg: structured_configs.Config, agent):
                 obj["params"],
                 save_dir_path / f"critic_net_params_{obj['global_step']}.tar",
             )
+
+        # Record videos of the model performance
+        evaluation.record_video(
+                agent, cfg.training_cfg.env_id, cfg.training_cfg.save_path
+        )
 
     if wandb_run is not None:
         wandb_run.finish()
@@ -329,7 +329,7 @@ def _gym_training_loop(
             )
 
             log.log_mo_metrics(
-                current_front=avg_disc_returns,
+                current_front=avg_returns,
                 ref_point=training_cfg.ref_point,
                 reward_dim=dims["reward_dim"],
                 global_step=global_step,
@@ -374,9 +374,11 @@ def _gym_training_loop(
         else:
             obs = next_obs
     
-    pfront, non_dom_pfront = history_buffer.pareto_front_to_json()
     # Finally, store the pareto-front to the wandb
     if wandb_run is not None:
+        pfront, non_dom_pfront = history_buffer.pareto_front_to_json(
+                use_discounted_returns=False
+        )
         _log_pareto_front(pfront, non_dom_pfront, wandb_run)
 
     return (
@@ -524,7 +526,7 @@ def _log_pareto_front(
     )
 
     wandb_run.log({"eval/pareto-front": non_dom_pareto_table})
-    wandb_run.log({"eval/eval-points": pareto})
+    wandb_run.log({"eval/eval-points": eval_point_table})
 
     wandb_run.plot_table(
         vega_spec_name="santeriheiskanen/pareto-front/v3",
@@ -534,6 +536,6 @@ def _log_pareto_front(
             "y": "avg_obj2",
         },
         string_fields={
-            "title": "Pareto-front",
+            "title": "Eval points",
         },
     )

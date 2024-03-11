@@ -296,6 +296,7 @@ class MSAHyper:
 
         for sample in replay_samples:
             replay_sample = sample.as_tensors(self._device)
+
             # Get the Q-target values
             with torch.no_grad():
                 (
@@ -436,7 +437,6 @@ class MSAHyper:
         if return_individual_losses:
             ind_losses = policy_loss.detach().clone()
             policy_loss = policy_loss.mean()
-            pass
         else:
             ind_losses = None
             policy_loss = policy_loss.mean()

@@ -1,7 +1,7 @@
-""" Some utilities for building neural networks """
+"""Some utilities for building neural networks"""
 
 import warnings
-from typing import Callable, Iterable, Tuple, Mapping, Sequence
+from typing import Callable, Iterable, Mapping, Sequence, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -14,7 +14,7 @@ _LOGGER = log.get_logger("utils.nets")
 
 @torch.no_grad()
 def polyak_update(src: nn.Module, dst: nn.Module, tau: float = 0.995):
-    """Polyak update that updates the parameters of the destination 
+    """Polyak update that updates the parameters of the destination
     with the source using soft-updates.
 
     Parameters
@@ -28,16 +28,15 @@ def polyak_update(src: nn.Module, dst: nn.Module, tau: float = 0.995):
     """
     assert 0 < tau <= 1, f"Tau must be between 0 and 1, got {tau:.3f} instead"
     for src_param, dst_param in zip(src.parameters(), dst.parameters()):
-        dst_param.data.copy_(
-            dst_param.data * (1.0 - tau) + src_param.data * tau)
+        dst_param.data.copy_(dst_param.data * (1.0 - tau) + src_param.data * tau)
 
 
 @torch.no_grad()
 def init_layers(
-        layer: torch.nn.Module,
-        init_type: str = "xavier_uniform",
-        weight_gain: float = 1.0,
-        bias_const: float = 0.0
+    layer: torch.nn.Module,
+    init_type: str = "xavier_uniform",
+    weight_gain: float = 1.0,
+    bias_const: float = 0.0,
 ):
     """Initialize layers of a torch.nn module.
 
@@ -57,13 +56,14 @@ def init_layers(
         init_fn(layer.weight, gain=weight_gain)
         nn.init.constant_(layer.bias, bias_const)
 
+
 def create_mlp(
-        *,
-        input_dim: int,
-        layer_features: Tuple[int, ...],
-        activation_fn: nn.Module | str,
-        apply_activation: Tuple[bool, ...] | bool = True,
-        dropout_rate: Tuple[float | None, ...] | float | None = None 
+    *,
+    input_dim: int,
+    layer_features: Tuple[int, ...],
+    activation_fn: nn.Module | str,
+    apply_activation: Tuple[bool, ...] | bool = True,
+    dropout_rate: Tuple[float | None, ...] | float | None = None,
 ) -> nn.Module:
     """Create a simple fully connected network using the specified architecture
     and activation function
@@ -78,7 +78,7 @@ def create_mlp(
     activation_fn : nn.Module | str
         The used activation function.
     apply_activation Tuple[bool, ...] | bool, optional
-        A boolean indicating if activation function should be applied after 
+        A boolean indicating if activation function should be applied after
         each given layer. If a single value is given, it is used after each
         layer. Default True. (i.e apply activation function after each layer)
 
@@ -89,15 +89,11 @@ def create_mlp(
     """
 
     if (n_layers := len(layer_features)) < 1:
-        raise ValueError(
-            f"Expected atleast 1 layer, but got {n_layers} layers"
-        )
+        raise ValueError(f"Expected atleast 1 layer, but got {n_layers} layers")
 
     if isinstance(apply_activation, bool):
-        apply_activation = (
-            apply_activation for _ in range(len(layer_features) + 1)
-        )
-    
+        apply_activation = (apply_activation for _ in range(len(layer_features) + 1))
+
     if isinstance(dropout_rate, float) or dropout_rate is None:
         dropout = (dropout_rate for _ in range(len(layer_features) + 1))
     else:
@@ -110,12 +106,14 @@ def create_mlp(
     architecture = (input_dim, *layer_features)
 
     for use_activation, dropout_rate, (in_dim, out_dim) in zip(
-            apply_activation, dropout, common.iter_pairwise(architecture)
+        apply_activation, dropout, common.iter_pairwise(architecture)
     ):
         _LOGGER.debug(
-                (f"Linear | {in_dim} -> {out_dim} | "
-                 f"activation {activation_fn.__name__} | "
-                 f"Dropout {dropout_rate}")
+            (
+                f"Linear | {in_dim} -> {out_dim} | "
+                f"activation {activation_fn.__name__} | "
+                f"Dropout {dropout_rate}"
+            )
         )
         layers.append(nn.Linear(in_dim, out_dim))
         if dropout_rate is not None:
@@ -127,10 +125,13 @@ def create_mlp(
 
 
 def target_network(
-        x: torch.Tensor, *,
-        weights: Tuple[torch.Tensor, ...], biases: Tuple[torch.Tensor, ...],
-        scales: Tuple[torch.Tensor, ...], apply_activation: Tuple[bool],
-        activation_fn: str | Callable = "relu",
+    x: torch.Tensor,
+    *,
+    weights: Tuple[torch.Tensor, ...],
+    biases: Tuple[torch.Tensor, ...],
+    scales: Tuple[torch.Tensor, ...],
+    apply_activation: Tuple[bool],
+    activation_fn: str | Callable = "relu",
 ) -> torch.Tensor:
     """Apply the forward pass of the target network of the hypernetwork.
     The target network is expected to contain linear layers.
@@ -160,9 +161,10 @@ def target_network(
     if isinstance(activation_fn, str):
         activation_fn = get_activation_fn(activation_fn)
 
-    assert callable(activation_fn), \
-        f"Activation function is not callable! ({activation_fn})"
-    
+    assert callable(
+        activation_fn
+    ), f"Activation function is not callable! ({activation_fn})"
+
     for w, b, scale, use_activation in iter:
         if out.ndim == 2:
             out = out.unsqueeze(2)
@@ -198,16 +200,17 @@ def get_initialization_fn(init_name: str) -> Callable:
         case "kaiming_normal":
             init_fn = nn.init.kaiming_normal_
         case _:
-            warnings.warn((f"Unknown initialization {init_name!r}, "
-                           "initializing to ones instead"))
+            warnings.warn(
+                (
+                    f"Unknown initialization {init_name!r}, "
+                    "initializing to ones instead"
+                )
+            )
             init_fn = nn.init.ones_
     return init_fn
 
 
-
-def compose_network_input_dim(
-        dims: Mapping[str, int], spec: Sequence[str]
-) -> int:
+def compose_network_input_dim(dims: Mapping[str, int], spec: Sequence[str]) -> int:
     """Calculated the input dimension of a neural network dynamically.
 
     Parameters
@@ -222,16 +225,17 @@ def compose_network_input_dim(
     int
         The dimensionality of the input.
     """
-    pass
     if any((missing := net_input) not in spec for net_input in spec):
-        raise ValueError((f"Unknown input {missing!r}! Valid options "
-                          f"are {list(spec)}"))
+        raise ValueError(
+            (f"Unknown input {missing!r}! Valid options " f"are {list(spec)}")
+        )
     if len(spec) == 1:
         return dims[spec[0]]
     return sum(dims[val] for val in spec)
 
+
 def compose_network_input(
-        vals: Mapping[str, torch.Tensor], spec: Sequence[str]
+    vals: Mapping[str, torch.Tensor], spec: Sequence[str]
 ) -> torch.Tensor:
     """Compose a input for a network dynamically.
 
@@ -248,21 +252,18 @@ def compose_network_input(
         The composed input tensor.
     """
     if any(missing := ipt not in vals for ipt in spec):
-        raise ValueError(
-                f"Unknown input {missing!r}! Valid options are {vals.keys()}"
-        )
+        raise ValueError(f"Unknown input {missing!r}! Valid options are {vals.keys()}")
 
     if len(spec) == 1:
         return vals[spec[0]]
     return torch.concat([vals[net_input] for net_input in spec], dim=-1)
 
 
-def get_target_input(
-        spec: Iterable[Tuple[bool, torch.Tensor]]
-) -> torch.Tensor:
-    out  = [input for use_input, input in spec if use_input]
-    return out if len(out) == 1 else torch.cat(out, dim=-1)
-    
+# def get_target_input(
+#         spec: Iterable[Tuple[bool, torch.Tensor]]
+# ) -> torch.Tensor:
+#     out  = [input for use_input, input in spec if use_input]
+#     return out if len(out) == 1 else torch.cat(out, dim=-1)
 
 
 def get_activation_fn(fn_name: str) -> Callable:
