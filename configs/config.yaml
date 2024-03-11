@@ -10,4 +10,4 @@ defaults:
 seed: 0
 device: "cpu"
 # The amount of cores to use. Used only if device is cpu
-n_threads: 4
+n_threads: 1

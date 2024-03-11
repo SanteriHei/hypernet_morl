@@ -8,11 +8,11 @@ head_init_stds:
   - 0.008
 
 # The MLP configuration
-input_dim: "${network.input_dim:${....hypernet_inputs}, ${.....training_cfg.env_id}}"
+input_dim: "${network.input_dim:${..hypernet_inputs}, ${...training_cfg.env_id}}"
 layer_features:
   - 256
   - 512
-  - ${..head_hidden_dim}
+  - "${..head_hidden_dim}"
 activation_fn: "relu"
 apply_activation:
   - true
