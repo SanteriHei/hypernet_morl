@@ -26,8 +26,10 @@ tomli = "*"
 plotly = "*"
 pyside6 = "*"
 kaleido = "*"
-seaborn = "*"
 tornado = "*"
+pycddlib = "*"
+matplotlib = "*"
+seaborn = "*"
 
 [requires]
 python_version = "3.10"

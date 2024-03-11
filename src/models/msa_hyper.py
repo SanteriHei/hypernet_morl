@@ -79,6 +79,7 @@ class MSAHyper:
             self._policy.parameters(), lr=self._cfg.policy_lr
         )
 
+
     @property
     def config(self) -> sconfigs.MSAHyperConfig:
         """Get the configuration for MSA"""
@@ -271,8 +272,9 @@ class MSAHyper:
         return self._policy.take_action(obs, prefs)
 
     def update(
-        self, replay_samples: List[common.ReplaySample]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        self, replay_samples: List[common.ReplaySample], *,
+        return_individual_losses: bool = False
+    ) -> Tuple[torch.Tensor, torch.Tensor, List[torch.Tensor] | None, torch.Tensor | None]:
         """Update the Q-networks and the policy network.
 
         Parameters
@@ -280,11 +282,15 @@ class MSAHyper:
         replay_sample : List[common.ReplaySample]
             The samples from the Replay buffer that are used to train
             the network.
+        return_individual_losses: bool, optional
+            Controls if the losses for individual samples are returned.
+            Default False
 
         Returns
         -------
-        Tuple[torch.Tensor, torch.Tensor]
-            The loss of the critic and the policy.
+        Tuple[torch.Tensor, torch.Tensor, List[torch.Tensor] | None, torch.tensor | None]
+            The loss of the critic and the policy. Optionally, if 'return_individual_losses'
+            is set to True, returns also the individual losses for each sample
         """
         self.set_mode(train_mode=True)
 
@@ -325,17 +331,26 @@ class MSAHyper:
                 ).detach()
 
             # Update the networks
-            critic_loss = self._update_q_network(target_q_values, replay_sample)
-            policy_loss = self._update_policy(replay_sample)
+            critic_loss, ind_critic_loss = self._update_q_network(
+                    target_q_values,
+                    replay_sample,
+                    return_individual_losses=return_individual_losses
+            )
+            policy_loss, ind_policy_loss = self._update_policy(
+                    replay_sample,
+                    return_individual_losses=return_individual_losses
+            )
 
             # Lastly, update the q-target networks
             for critic, critic_target in zip(self._critics, self._critic_targets):
                 nets.polyak_update(src=critic, dst=critic_target, tau=self._cfg.tau)
-
-        return critic_loss, policy_loss
+    
+        # TODO: return the losses for indiviual points
+        return critic_loss, policy_loss, ind_critic_loss, ind_policy_loss
 
     def _update_q_network(
-        self, target_q_values: torch.Tensor, replay_sample: common.ReplaySample
+        self, target_q_values: torch.Tensor, replay_sample: common.ReplaySample,
+        return_individual_losses: bool = False
     ) -> torch.Tensor:
         """Update the critic networks.
 
@@ -345,6 +360,9 @@ class MSAHyper:
             The Q-values given by the target critic network.
         replay_sample : common.ReplaySample
             The sample from the replay buffer.
+        return_individual_losses: bool, optional
+            Controls if the losses for individual samples are returned.
+            Default False
 
         Returns
         -------
@@ -355,22 +373,44 @@ class MSAHyper:
             critic(replay_sample.obs, replay_sample.actions, replay_sample.prefs)
             for critic in self._critics
         ]
-        critic_loss = (1 / self._cfg.n_networks) * sum(
-            F.mse_loss(q_value, target_q_values) for q_value in q_vals
-        )
+
+        # If the individual_losses are needed, calculate them first
+        if return_individual_losses:
+            ind_losses = []
+            for q_val_batch in q_vals:
+                losses = F.mse_loss(q_val_batch, target_q_values, reduction = "none")
+                ind_losses.append(losses)
+            
+            critic_loss = (1 / self._cfg.n_networks) * sum(
+                    torch.mean(loss) for loss in ind_losses
+            )
+            
+            # Detach the individual_losses from the computational graph
+            ind_losses = [loss.detach().clone() for loss in ind_losses]
+        else:
+            critic_loss = (1 / self._cfg.n_networks) * sum(
+                F.mse_loss(q_val_batch, target_q_values) for q_val_batch in q_vals
+            )
+            ind_losses = None
 
         self._critic_optim.zero_grad()
         critic_loss.backward()
         self._critic_optim.step()
-        return critic_loss
+        return critic_loss, ind_losses
 
-    def _update_policy(self, replay_sample: common.ReplaySample) -> torch.Tensor:
+    def _update_policy(
+            self, replay_sample: common.ReplaySample,
+            return_individual_losses: bool = False
+    ) -> torch.Tensor:
         """Update the Policy network.
 
         Parameters
         ----------
         replay_sample : common.ReplaySample
             The sample from the Replay buffer.
+        return_individual_losses: bool, optional
+            Controls if the losses for individual samples are returned.
+            Default False
 
         Returns
         -------
@@ -390,15 +430,20 @@ class MSAHyper:
             ]
         )
 
-        # Minimize the KL-divergence
         min_q_val = torch.min(q_values, dim=0).values
         min_q_val = (min_q_val * replay_sample.prefs).sum(dim=-1, keepdim=True)
-
-        policy_loss = ((self._cfg.alpha * log_prob) - min_q_val).mean()
+        policy_loss = ((self._cfg.alpha * log_prob) - min_q_val)
+        if return_individual_losses:
+            ind_losses = policy_loss.detach().clone()
+            policy_loss = policy_loss.mean()
+            pass
+        else:
+            ind_losses = None
+            policy_loss = policy_loss.mean()
 
         self._policy_optim.zero_grad()
         policy_loss.backward()
         self._policy_optim.step()
-        return policy_loss
+        return policy_loss, ind_losses
 
  

@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 import wandb
-from src.utils import common, envs, evaluation, log, pareto
+from src.utils import common, envs, evaluation, log, pareto, samplers
 
 from . import structured_configs
 from .structured_configs import PrefSamplerFreq
@@ -56,15 +56,14 @@ def train_agent(cfg: structured_configs.Config, agent):
     )
 
     # Only the "normal" sampler is using the angle, other samplers just ignore it
-    preference_sampler = common.get_preference_sampler(
+    preference_sampler = samplers.get_preference_sampler(
         cfg.training_cfg.sampler_type,
         cfg.critic_cfg.reward_dim,
         device=agent.device,
         seed=cfg.seed,
         **cfg.training_cfg.sampler_kwargs
-        # angle_rad=common.deg_to_rad(cfg.training_cfg.angle_deg),
     )
-    warmup_sampler = common.get_preference_sampler(
+    warmup_sampler = samplers.get_preference_sampler(
             "static",
             cfg.critic_cfg.reward_dim,
             device=agent.device,
@@ -131,6 +130,8 @@ def train_agent(cfg: structured_configs.Config, agent):
 
         history_buffer.save_history(save_dir_path / "history.npz")
 
+        history_buffer.save_losses(save_dir_path / "losses.npz")
+
         for obj in dynamic_net_params:
             torch.save(
                 obj["params"],
@@ -146,8 +147,8 @@ def _gym_training_loop(
     *,
     training_cfg: structured_configs.TrainingConfig,
     replay_buffer: common.ReplayBuffer,
-    weight_sampler: common.PreferenceSampler,
-    warmup_sampler: common.StaticSampler,
+    weight_sampler: samplers.PreferenceSampler,
+    warmup_sampler: samplers.StaticSampler,
     env: gym.Env,
     logger: logging.Logger,
     wandb_run: log.WandbRun,
@@ -243,7 +244,20 @@ def _gym_training_loop(
                 replay_buffer.sample(training_cfg.batch_size)
                 for _ in range(training_cfg.n_gradient_steps)
             ]
-            critic_loss, policy_loss = agent.update(batches)
+            (
+                    critic_loss, policy_loss, critic_ind_losses, policy_ind_losses
+            ) = agent.update(
+                    batches,
+                    return_individual_losses=training_cfg.save_individual_losses
+            )
+
+            # If individual losses are required, save them
+            if training_cfg.save_individual_losses:
+                history_buffer.append_losses(
+                        batches[-1].prefs, critic_ind_losses, policy_ind_losses
+                )
+
+
 
             # Log metrics
             if global_step % training_cfg.log_freq == 0:
@@ -337,7 +351,8 @@ def _gym_training_loop(
                 logger.info(f"Saving model at {global_step}")
             path = pathlib.Path(training_cfg.save_path)
             agent.save(path / f"msa_hyper_{global_step}.tar")
-
+        
+        # Handle vectorized environments
         if isinstance(terminated, np.ndarray):
             done = terminated.any() or truncated.any()
             new_episodes = (terminated | truncated).sum()
@@ -484,13 +499,11 @@ def _log_pareto_front(
     """
 
     def _row_to_list(row):
-        return [
-                row["global_step"],
-                row["avg_disc_return_0"], 
-                row["avg_disc_return_1"],
-                row["std_disc_return_0"],
-                row["std_disc_return_1"]
+        _cols = [
+                "global_step", "avg_disc_return_0", "avg_disc_return_1",
+                "std_disc_return_0", "std_disc_return_1", "pref_0", "pref_1"
         ]
+        return [row[key] for key in _cols]
         
     # Filter certain amount of rows from the dataset to make them fit to the 
     # wandb-tables
@@ -502,11 +515,11 @@ def _log_pareto_front(
     non_dom_pareto_data = list(map(_row_to_list, non_dom_pfront_table))
 
     eval_point_table = wandb.Table(
-        columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2"],
+        columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2", "pref_0", "pref_1"],
         data=eval_point_data,
     )
     non_dom_pareto_table = wandb.Table(
-        columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2"],
+        columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2", "pref_0", "pref_1"],
         data=non_dom_pareto_data,
     )
 

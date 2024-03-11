@@ -81,6 +81,7 @@ class MSAHyperConfig:
     device: str = MISSING
 
 
+
 @dataclass
 class ResblockConfig:
     """
@@ -321,7 +322,6 @@ class TrainingConfig:
     # Sampler
     sampler_type: str = "normal"
     pref_sampling_freq: PrefSamplerFreq = "timestep"
-
     sampler_kwargs: Dict[str, Any] = field(default_factory=lambda: {})
 
     # Warmup sampler
@@ -341,7 +341,7 @@ class TrainingConfig:
     model_save_freq: int = int(1e5)
     save_dynamic_weights: bool = True
     dynamic_net_save_freq: int = int(1e5)
-
+    save_individual_losses: bool = False
 
     # Evaluation parameters
     n_eval_episodes: int = 5
