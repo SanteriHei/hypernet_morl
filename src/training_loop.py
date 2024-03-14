@@ -27,13 +27,13 @@ def train_agent(cfg: structured_configs.Config, agent):
 
     if cfg.training_cfg.num_envs == 1:
         training_env = envs.create_env(
-                cfg.training_cfg.env_id, cfg.device, gamma=agent.gamma
+                cfg.training_cfg.env_id, cfg.device, gamma=agent.config.gamma
         )
     else:
         training_env = envs.create_vec_envs(
                 cfg.training_cfg.env_id,
                 device=cfg.device,
-                gamma=agent.gamma,
+                gamma=agent.config.gamma,
                 n_envs = cfg.training_cfg.num_envs
         )
 

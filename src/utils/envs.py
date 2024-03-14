@@ -164,7 +164,7 @@ def create_env(
         device = torch.device(device)
 
     # Add normalizing
-    env = mo_gym.MORecordEpisodeStatistics(env, ganna=gamma)
+    env = mo_gym.MORecordEpisodeStatistics(env, gamma=gamma)
     env = TorchWrapper(env, device=device)
     return env
 

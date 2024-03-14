@@ -310,7 +310,6 @@ class TrainingConfig:
     # Simulation env stuff
     n_timesteps: int = 1_000
     n_random_steps: int = 200
-    n_warmup_steps: int = 1_000
 
     env_id: str = MISSING
     num_envs: int = 1
@@ -325,6 +324,7 @@ class TrainingConfig:
     sampler_kwargs: Dict[str, Any] = field(default_factory=lambda: {})
 
     # Warmup sampler
+    n_warmup_steps: int = 0
     warmup_use_uneven_sampling: bool = False
     warmup_n_ref_points: int = 20
 
