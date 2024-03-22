@@ -84,6 +84,18 @@ def register_configs(cs: ConfigStore):
     )
 
 
+def _resolve_default_alpha(env_id: str) -> int:
+    match env_id:
+        case "mo-hopper-v4":
+            return 0.2
+        case "mo-swimmer-v4": 
+            return 0.1
+        case "mo-halfcheetah-v4":
+            return 0.1
+        case _:
+            return 0.1
+
+
 def _resolve_obs_dim(env_id: str) -> int:
     """Resolve the observation dimension of the currently used config.
 
