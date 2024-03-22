@@ -46,7 +46,8 @@ def setup_wandb(
         group=session_cfg.experiment_group,
         name=session_cfg.run_name,
         config=model_config,
-        sync_tensorboard=True
+        sync_tensorboard=True,
+        monitor_gym=True
     )
 
     # Define an metric for using the global-steps

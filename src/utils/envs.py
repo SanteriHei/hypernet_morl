@@ -159,10 +159,7 @@ def create_env(
     gym.Env
         The desired enviroment with appropriate wrappers.
     """
-    default_kwargs = {"monitor_gym": True}
-    default_kwargs.update(kwargs)
-    
-    env = mo_gym.make(env_id, **default_kwargs)
+    env = mo_gym.make(env_id, **kwargs)
     if isinstance(device, str):
         device = torch.device(device)
 
