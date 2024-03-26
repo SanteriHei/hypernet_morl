@@ -26,34 +26,19 @@ class Critic(nn.Module):
         super().__init__()
         self._logger = log.get_logger("models.hyper_critic")
         self._cfg = cfg
-        self._device = (
-            cfg.device
-            if isinstance(cfg.device, torch.device)
-            else torch.device(cfg.device)
-        )
 
         self._logger.debug("Creating critic network...")
-        
-        target_input_dim = nets.compose_network_input(
-                {
-                    "action": self._cfg.action_dim,
-                    "prefs": self._cfg.reward_dim, 
-                    "obs": self._cfg.obs_dim
-                }, self._cfg.target_net_inputs
+        target_input_dim = (
+                self._cfg.action_dim + self._cfg.obs_dim + self._cfg.reward_dim
         )
         self._network = nets.create_mlp(
             input_dim=target_input_dim,
-            layer_features=cfg.layer_dims,
+            layer_features=self._cfg.layer_features,
             activation_fn=cfg.activation_fn,
             apply_activation=cfg.apply_activation,
-        ).to(self._device)
+        )
 
-    @property
-    def device(self) -> torch.device:
-        """Returns the device where the model is stored."""
-        return self._device
-
-    def config(self) -> structured_configs.CriticConfig:
+    def config(self) -> structured_configs.HyperCriticConfig:
         """Get the configuration of the critic"""
         return self._cfg
 
@@ -76,11 +61,12 @@ class Critic(nn.Module):
         torch.Tensor
             The estimated Q(s, a, w) value with shape (batch_dim, reward_dim)
         """
-        return self._network(torch.cat((obs, action, prefs), dim=-1))
+        out = self._network(torch.cat((obs, action, prefs), dim=-1))
+        return out
 
 
 class HyperCritic(nn.Module):
-    def __init__(self, cfg: structured_configs.CriticConfig):
+    def __init__(self, cfg: structured_configs.HyperCriticConfig):
         """Create a multi-objective critic network that utilizes a hypernetwork
         for generating it parameters.
 
@@ -131,7 +117,7 @@ class HyperCritic(nn.Module):
             hidden_dim=cfg.hypernet_cfg.head_hidden_dim,
             target_input_dim=target_input_dim,
             target_output_dim=cfg.reward_dim,
-            layer_features=cfg.layer_dims,
+            layer_features=cfg.layer_features,
             n_outputs=1,
             init_method=cfg.hypernet_cfg.head_init_method,
             init_stds=cfg.hypernet_cfg.head_init_stds,
@@ -139,12 +125,12 @@ class HyperCritic(nn.Module):
 
         # create mask, such that the activation function is not applied at the
         # latest layer
-        n_layers = len(cfg.layer_dims)
+        n_layers = len(cfg.layer_features)
         self._activation_mask = np.arange(n_layers + 1) < n_layers
         self._logger.debug(f"Activation mask {self._activation_mask}")
 
     @property
-    def config(self) -> structured_configs.CriticConfig:
+    def config(self) -> structured_configs.HyperCriticConfig:
         """Get the configuration of the critic"""
         return self._cfg
 

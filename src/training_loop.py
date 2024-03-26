@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 import pathlib
 import time
@@ -6,9 +7,10 @@ from typing import Dict, List, Tuple
 import gymnasium as gym
 import numpy as np
 import torch
+from omegaconf import MISSING
 
 import wandb
-from src.utils import common, envs, evaluation, log, pareto, samplers
+from src.utils import common, envs, evaluation, log, pareto, samplers, warmup
 
 from . import structured_configs
 from .structured_configs import PrefSamplerFreq
@@ -24,17 +26,55 @@ def train_agent(cfg: structured_configs.Config, agent):
     cfg : structured_configs.Config
         The configuration for the training.
     """
+    logger = log.get_logger("train") if cfg.training_cfg.log_to_stdout else None
+
+    # TODO: Parameterize this
+    model_cfg = structured_configs.MSAHyperConfig(
+        alpha=0.1, tau=0.005, gamma=0.99, device="cpu"
+    )
+    policy_cfg = dataclasses.replace(
+        cfg.policy_cfg,
+        policy_type="gaussian",
+        layer_features=(256, 256),
+        target_net_inputs=("obs", "prefs"),
+        hypernet_cfg=MISSING,
+    )
+
+    critic_cfg = structured_configs.CriticConfig(
+        layer_features=(256, 256, cfg.critic_cfg.reward_dim),
+        apply_activation=(True, True, False),
+        reward_dim=cfg.critic_cfg.reward_dim,
+        obs_dim=cfg.critic_cfg.obs_dim,
+        action_dim=cfg.critic_cfg.action_dim,
+    )
+
+    warmup_prefs = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
+
+    utopia_points = torch.tensor([[2350, 0], [0, 2550]])
+
+    logger.debug("Starting pre warmup-stage")
+    warmup.run_warmup(
+        model_cfg,
+        policy_cfg,
+        critic_cfg,
+        cfg.training_cfg.env_id,
+        warmup_prefs,
+        10_000,
+        utopia_points,
+        seed=cfg.seed,
+    )
+    logger.debug("pre Warmup done!")
 
     if cfg.training_cfg.num_envs == 1:
         training_env = envs.create_env(
-                cfg.training_cfg.env_id, cfg.device, gamma=agent.config.gamma
+            cfg.training_cfg.env_id, cfg.device, gamma=agent.config.gamma
         )
     else:
         training_env = envs.create_vec_envs(
-                cfg.training_cfg.env_id,
-                device=cfg.device,
-                gamma=agent.config.gamma,
-                n_envs = cfg.training_cfg.num_envs
+            cfg.training_cfg.env_id,
+            device=cfg.device,
+            gamma=agent.config.gamma,
+            n_envs=cfg.training_cfg.num_envs,
         )
 
     if cfg.training_cfg.log_to_wandb:
@@ -46,8 +86,6 @@ def train_agent(cfg: structured_configs.Config, agent):
             wandb_run.watch(cfg.policy, log="gradients", log_freq=1000)
     else:
         wandb_run = None
-
-    logger = log.get_logger("train") if cfg.training_cfg.log_to_stdout else None
 
     # Construct the relevant buffers
     replay_buffer = common.ReplayBuffer(
@@ -65,15 +103,15 @@ def train_agent(cfg: structured_configs.Config, agent):
         cfg.critic_cfg.reward_dim,
         device=agent.device,
         seed=cfg.seed,
-        **cfg.training_cfg.sampler_kwargs
+        **cfg.training_cfg.sampler_kwargs,
     )
     warmup_sampler = samplers.get_preference_sampler(
-            "static",
-            cfg.critic_cfg.reward_dim,
-            device=agent.device,
-            seed=cfg.seed,
-            uneven_weighting=cfg.training_cfg.warmup_use_uneven_sampling,
-            n_points=cfg.training_cfg.warmup_n_ref_points
+        "static",
+        cfg.critic_cfg.reward_dim,
+        device=agent.device,
+        seed=cfg.seed,
+        uneven_weighting=cfg.training_cfg.warmup_use_uneven_sampling,
+        n_points=cfg.training_cfg.warmup_n_ref_points,
     )
 
     # Ensure that the saving directory exists
@@ -99,30 +137,25 @@ def train_agent(cfg: structured_configs.Config, agent):
 
     if cfg.training_cfg.save_path is not None:
         save_dir_path = pathlib.Path(cfg.training_cfg.save_path)
-    
+
         model_path = save_dir_path / "msa_hyper_final.tar"
         if logger is not None:
             logger.info(f"Saving trained model to {cfg.training_cfg.save_path}")
 
         trained_agent.save(model_path)
-        
+
         # Store the discounted returns for the evaluation preferences
         eval_points, non_dom_pfront = history_buffer.pareto_front_to_json()
+        common.dump_json(save_dir_path / "eval_points_disc_returns.json", eval_points)
         common.dump_json(
-            save_dir_path / "eval_points_disc_returns.json", eval_points
+            save_dir_path / "non_dom_pareto_front_disc_returns.json", non_dom_pfront
         )
-        common.dump_json(
-            save_dir_path / "non_dom_pareto_front_disc_returns.json",
-            non_dom_pfront
-        )
-    
+
         # Store also the raw returns for the evaluation preferences
         eval_points, non_dom_pfront = history_buffer.pareto_front_to_json(
-                use_discounted_returns=False
+            use_discounted_returns=False
         )
-        common.dump_json(
-            save_dir_path / "eval_points_returns.json", eval_points
-        )
+        common.dump_json(save_dir_path / "eval_points_returns.json", eval_points)
         common.dump_json(
             save_dir_path / "non_dom_pareto_front_returns.json", non_dom_pfront
         )
@@ -139,7 +172,7 @@ def train_agent(cfg: structured_configs.Config, agent):
 
         # Record videos of the model performance
         evaluation.record_video(
-                agent, cfg.training_cfg.env_id, cfg.training_cfg.save_path
+            agent, cfg.training_cfg.env_id, cfg.training_cfg.save_path
         )
 
     if wandb_run is not None:
@@ -167,23 +200,17 @@ def _gym_training_loop(
     """
 
     def _sample_preferences(step: int, n_samples: int) -> torch.Tensor:
-        if (
-                training_cfg.n_warmup_steps > 0 and 
-                step < training_cfg.n_warmup_steps
-        ):
+        if training_cfg.n_warmup_steps > 0 and step < training_cfg.n_warmup_steps:
             prefs = warmup_sampler.sample(n_samples=n_samples)
         else:
             prefs = weight_sampler.sample(n_samples=n_samples)
         return prefs.squeeze()
-
-
 
     # Initialize the run
     obs, info = env.reset(seed=seed)
     global_step = 0
     num_episodes = 0
     dims = envs.extract_env_dims(env)
-
 
     # Keep track of the history of the agent
     history_buffer = common.HistoryBuffer(
@@ -192,14 +219,12 @@ def _gym_training_loop(
         n_eval_prefs=training_cfg.n_eval_prefs,
         obs_dim=dims["obs_dim"],
         reward_dim=dims["reward_dim"],
-        action_dim=dims["action_dim"]
+        action_dim=dims["action_dim"],
     )
 
     # Store the dynamic network weights
     dynamic_net_params = []
-    static_pref = _get_static_preference(
-            dims["reward_dim"], device=agent.device
-    )
+    static_pref = _get_static_preference(dims["reward_dim"], device=agent.device)
     static_obs = _get_static_obs(training_cfg.env_id, device=agent.device)
 
     # Create the preferences that are used later for evaluating the agent.
@@ -210,22 +235,19 @@ def _gym_training_loop(
         device=agent.device,
         dtype=torch.float32,
     )
-        
+
     start_time = time.perf_counter()
     for ts in range(0, training_cfg.n_timesteps, training_cfg.num_envs):
         global_step += training_cfg.num_envs
-        
-        # If this is the first step, or if the preferences are sampled 
+
+        # If this is the first step, or if the preferences are sampled
         # at every timestep, select a preference
         if (
             global_step == training_cfg.num_envs
             or training_cfg.pref_sampling_freq == PrefSamplerFreq.timestep
         ):
+            prefs = _sample_preferences(global_step, n_samples=training_cfg.num_envs)
 
-            prefs = _sample_preferences(
-                global_step, n_samples=training_cfg.num_envs
-            )
-        
         if global_step < training_cfg.n_random_steps:
             action = torch.tensor(
                 env.action_space.sample(), device=agent.device, dtype=torch.float32
@@ -248,20 +270,18 @@ def _gym_training_loop(
                 replay_buffer.sample(training_cfg.batch_size)
                 for _ in range(training_cfg.n_gradient_steps)
             ]
-            (
-                    critic_loss, policy_loss, critic_ind_losses, policy_ind_losses
-            ) = agent.update(
+            (critic_loss, policy_loss, critic_ind_losses, policy_ind_losses) = (
+                agent.update(
                     batches,
-                    return_individual_losses=training_cfg.save_individual_losses
+                    return_individual_losses=training_cfg.save_individual_losses,
+                )
             )
 
             # If individual losses are required, save them
             if training_cfg.save_individual_losses:
                 history_buffer.append_losses(
-                        batches[-1].prefs, critic_ind_losses, policy_ind_losses
+                    batches[-1].prefs, critic_ind_losses, policy_ind_losses
                 )
-
-
 
             # Log metrics
             if global_step % training_cfg.log_freq == 0:
@@ -297,11 +317,9 @@ def _gym_training_loop(
 
         # === evaluate the policy on the evaluation preferences ===
         if global_step % (training_cfg.eval_freq * 5) == 0:
-
             # Steps per second
             stop_time = time.perf_counter()
             sps = global_step / (stop_time - start_time)
-
 
             eval_data = [
                 evaluation.eval_policy(
@@ -319,17 +337,17 @@ def _gym_training_loop(
                         elem["avg_discounted_returns"],
                         elem["std_discounted_returns"],
                         elem["avg_returns"],
-                        elem["std_returns"]
+                        elem["std_returns"],
                     ],
                     eval_data,
                 )
             )
             history_buffer.append_avg_returns(
-                    avg_disc_returns=avg_disc_returns, 
-                    sd_disc_returns=sd_disc_returns, 
-                    avg_returns=avg_returns,
-                    sd_returns=sd_returns,
-                    step=global_step
+                avg_disc_returns=avg_disc_returns,
+                sd_disc_returns=sd_disc_returns,
+                avg_returns=avg_returns,
+                sd_returns=sd_returns,
+                step=global_step,
             )
 
             log.log_mo_metrics(
@@ -350,12 +368,11 @@ def _gym_training_loop(
             and global_step % training_cfg.model_save_freq == 0
             and global_step > 0
         ):
-
             if logger is not None:
                 logger.info(f"Saving model at {global_step}")
             path = pathlib.Path(training_cfg.save_path)
             agent.save(path / f"msa_hyper_{global_step}.tar")
-        
+
         # Handle vectorized environments
         if isinstance(terminated, np.ndarray):
             done = terminated.any() or truncated.any()
@@ -363,7 +380,7 @@ def _gym_training_loop(
         else:
             done = terminated or truncated
             new_episodes = 1
-        
+
         if done:
             num_episodes += new_episodes
             log.log_episode_stats(
@@ -372,16 +389,21 @@ def _gym_training_loop(
 
             if training_cfg.pref_sampling_freq == PrefSamplerFreq.episode:
                 prefs = _sample_preferences(
-                        global_step, n_samples=training_cfg.num_episodes
+                    global_step, n_samples=training_cfg.num_episodes
                 )
-            obs, info = env.reset()
+
+            # Vector envs use auto-reseting, so do not reset them manually
+            if env.is_vector_env:
+                obs = next_obs
+            else:
+                obs, info = env.reset()
         else:
             obs = next_obs
-    
+
     # Finally, store the pareto-front to the wandb
     if wandb_run is not None:
         pfront, non_dom_pfront = history_buffer.pareto_front_to_json(
-                use_discounted_returns=False
+            use_discounted_returns=False
         )
         _log_pareto_front(pfront, non_dom_pfront, wandb_run)
 
@@ -490,7 +512,7 @@ def _log_pareto_front(
     pfront_table: List[Dict[str, float | int]],
     non_dom_pfront_table: List[Dict[str, float | int]],
     wandb_run: log.WandbRun,
-    step_freq: int = int(5e4)
+    step_freq: int = int(5e4),
 ):
     """Logs the pareto-front to the W&B dashboard.
 
@@ -506,26 +528,45 @@ def _log_pareto_front(
 
     def _row_to_list(row):
         _cols = [
-                "global_step", "avg_disc_return_0", "avg_disc_return_1",
-                "std_disc_return_0", "std_disc_return_1", "pref_0", "pref_1"
+            "global_step",
+            "avg_disc_return_0",
+            "avg_disc_return_1",
+            "std_disc_return_0",
+            "std_disc_return_1",
+            "pref_0",
+            "pref_1",
         ]
         return [row[key] for key in _cols]
-        
-    # Filter certain amount of rows from the dataset to make them fit to the 
+
+    # Filter certain amount of rows from the dataset to make them fit to the
     # wandb-tables
-    pfront_table = filter(
-            lambda x: x["global_step"] % step_freq == 0, pfront_table
-    )
+    pfront_table = filter(lambda x: x["global_step"] % step_freq == 0, pfront_table)
 
     eval_point_data = list(map(_row_to_list, pfront_table))
     non_dom_pareto_data = list(map(_row_to_list, non_dom_pfront_table))
 
     eval_point_table = wandb.Table(
-        columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2", "pref_0", "pref_1"],
+        columns=[
+            "step",
+            "avg_obj1",
+            "avg_obj2",
+            "std_obj1",
+            "std_obj2",
+            "pref_0",
+            "pref_1",
+        ],
         data=eval_point_data,
     )
     non_dom_pareto_table = wandb.Table(
-        columns=["step", "avg_obj1", "avg_obj2", "std_obj1", "std_obj2", "pref_0", "pref_1"],
+        columns=[
+            "step",
+            "avg_obj1",
+            "avg_obj2",
+            "std_obj1",
+            "std_obj2",
+            "pref_0",
+            "pref_1",
+        ],
         data=non_dom_pareto_data,
     )
 

@@ -1,11 +1,89 @@
 import warnings
 from typing import Any, Literal, Mapping
 
+import numpy as np
 import numpy.typing as npt
 import pymoo.util.ref_dirs
 import torch
+from torch.distributions import Dirichlet
 
 from . import common
+
+
+class DirichletSampler:
+    
+    _DEFAULT_ALPHA = torch.tensor([1.0])
+    def __init__(
+        self, 
+        reward_dim: int, 
+        device: str | torch.device | None = None,
+        **kwargs: Mapping[str, Any]
+    ):
+
+        """
+        Simple wrapper over torch.distributions Dirichlet sampler to provide
+        consistent device placement of the set tensors.
+
+        Parameters
+        ---------
+        reward_dim: int
+            The dimensionality of the rewards
+        device: str | torch.device | None
+            The device where the tensors will be stored. If None, "cpu" is used
+            as the default. Default None
+        alpha: npt.NDArray | torch.Tensor | float
+            The concentration parameters to the Dirichlet distribution. If a 
+            single value is given, it is used for all of the variables.
+        """
+        self._reward_dim = reward_dim
+        self._device = torch.device("cpu" if device is None else device)
+
+        alphas = kwargs.pop("alpha", None)
+        if alphas is None:
+            warnings.warn(
+                    "Missing 'alpha' in Dirilect sampler! Using default "
+                    "parameterization (i.e. uniform distribution) instead!"
+            )
+            alphas = self._DEFAULT_ALPHA.expand(
+                    self._reward_dim
+            )
+        elif isinstance(alphas, np.ndarray):
+            alphas = torch.from_numpy(alphas)
+        elif isinstance(alphas, float):
+            alphas = torch.tensor([alphas]).expand(self._reward_dim)
+
+        if alphas.shape[0] != self._reward_dim:
+            raise ValueError((
+                f"Expexted {reward_dim} values for 'alpha', "
+                f"got {alphas.shape[0]} values instead!"
+            ))
+        self._distr = Dirichlet(alphas)
+
+    @property
+    def reward_dim(self) -> int:
+        """Return the used reward dimensionality"""
+        return self._reward_dim
+
+    @property
+    def device(self) -> torch.device:
+        """Return the currently used device"""
+        return self._device
+
+    def sample(self, n_samples: int = 1) -> torch.Tensor:
+        """Sample a new preference.
+
+        Parameters
+        ----------
+        n_samples : int
+            The amount of preferences to sample
+
+        Returns
+        -------
+        torch.Tensor
+            The sampled preferences.
+        """
+        sample = self._distr.sample(n_samples)
+        return sample.to(self._device, dtype=torch.float32)
 
 
 class SingleSampler:
@@ -392,6 +470,8 @@ def get_preference_sampler(
             sampler = StaticSampler(reward_dim, device=device, seed=seed, **kwargs)
         case "single":
             sampler = SingleSampler(reward_dim, device=device, seed=seed, **kwargs)
+        case "dirichlet":
+            sampler = DirichletSampler(reward_dim, device=device, seed=seed, **kwargs)
         case _:
             raise ValueError(
                 (

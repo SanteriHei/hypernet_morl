@@ -77,7 +77,7 @@ def register_configs(cs: ConfigStore):
         node=structured_configs.MSAHyperConfig,
     )
     cs.store(
-        group="critic_cfg", name="base_critic", node=structured_configs.CriticConfig
+        group="critic_cfg", name="base_critic", node=structured_configs.HyperCriticConfig
     )
     cs.store(
         group="policy_cfg", name="base_policy", node=structured_configs.PolicyConfig

@@ -123,12 +123,14 @@ def extract_env_dims(env: gym.Env) -> Dict[str, int]:
             "obs_dim": env.get_wrapper_attr("single_observation_space").shape[0],
             "action_dim": env.get_wrapper_attr("single_action_space").shape[0],
             "reward_dim": env.reward_space.shape[0],
+            "num_envs": env.num_envs
         }
 
     return {
         "obs_dim": env.observation_space.shape[0],
         "action_dim": env.action_space.shape[0],
         "reward_dim": env.reward_space.shape[0],
+        "num_envs": 1
     }
 
 

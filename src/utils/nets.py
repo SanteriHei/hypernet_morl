@@ -1,7 +1,7 @@
 """Some utilities for building neural networks"""
 
 import warnings
-from typing import Callable, Iterable, Mapping, Sequence, Tuple
+from typing import Callable, Mapping, Sequence, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -257,13 +257,6 @@ def compose_network_input(
     if len(spec) == 1:
         return vals[spec[0]]
     return torch.concat([vals[net_input] for net_input in spec], dim=-1)
-
-
-# def get_target_input(
-#         spec: Iterable[Tuple[bool, torch.Tensor]]
-# ) -> torch.Tensor:
-#     out  = [input for use_input, input in spec if use_input]
-#     return out if len(out) == 1 else torch.cat(out, dim=-1)
 
 
 def get_activation_fn(fn_name: str) -> Callable:

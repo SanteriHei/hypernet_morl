@@ -46,7 +46,7 @@ def critic_cfg_from_dict(critic_dict: Dict[str, Any]):
         hypernet_cfg["embedding_layers"] = tuple(blocks)
         critic_dict["hypernet_cfg"] = HyperNetConfig(**hypernet_cfg)
     print(critic_dict["hypernet_cfg"])
-    return CriticConfig(**critic_dict)
+    return HyperCriticConfig(**critic_dict)
 
 
 
@@ -168,17 +168,26 @@ class HyperNetConfig:
     head_init_method: str = "uniform"
     head_init_stds: Tuple[float, ...] = MISSING
 
-
 @dataclass
 class CriticConfig:
-    """s
+    layer_features: Tuple[int, ...] = MISSING
+    reward_dim: int = MISSING
+    obs_dim: int = MISSING
+    action_dim: int = MISSING
+    activation_fn: str = "relu"
+    apply_activation: Tuple[bool, ...]  = MISSING
+
+
+@dataclass
+class HyperCriticConfig:
+    """
     A configuration for the Q-Hypernetwork
 
     Attributes
     ----------
     resblock_arch: Tuple[ResblockConfig, ...] The configuration for the residual
         blocks
-    layer_dims: Tuple[int, ...] The dimensions for the dynamic network.
+    layer_features: Tuple[int, ...] The dimensions for the dynamic network.
     reward_dim: int The reward dimension of the environment. Default 3.
     obs_dim: int The observation dimension of the  environment. Default 3
     head_hidden_dim: int The hidden dimension of the "Heads". Default 1024.
@@ -195,7 +204,7 @@ class CriticConfig:
         Default False.
     """
 
-    layer_dims: Tuple[int, ...] = MISSING
+    layer_features: Tuple[int, ...] = MISSING
     reward_dim: int = MISSING
     obs_dim: int = MISSING
     action_dim: int = MISSING
@@ -369,7 +378,7 @@ class Config:
     training_cfg: TrainingConfig = MISSING
     session_cfg: SessionConfig = MISSING
     policy_cfg: PolicyConfig = MISSING
-    critic_cfg: CriticConfig = MISSING
+    critic_cfg: HyperCriticConfig = MISSING
     msa_hyper_cfg: MSAHyperConfig = MISSING
     seed: int | None = None
     device: str = "cpu"
@@ -387,6 +396,7 @@ class Config:
             # Session
             "slurm_job_id": self.session_cfg.slurm_job_id,
             "slurm_array_task_id": self.session_cfg.slurm_array_task_id,
+            
             # Training
             "ref_point": self.training_cfg.ref_point,
             "ref_set": self.training_cfg.ref_set,
@@ -399,10 +409,12 @@ class Config:
             "n_warmump_steps": self.training_cfg.n_warmup_steps,
             "warmup_n_ref_points": self.training_cfg.warmup_n_ref_points,
             "sampler_type": self.training_cfg.sampler_type,
+            "sampler_kwargs": self.training_cfg.sampler_kwargs,
             "pref_sampling_freq": self.training_cfg.pref_sampling_freq.name,
             "warmup_use_uneven_sampling": self.training_cfg.warmup_use_uneven_sampling,
             "batch_size": self.training_cfg.batch_size,
             "buffer_capacity": self.training_cfg.buffer_capacity,
+            
             # MSA-hyper
             "n_networks": self.msa_hyper_cfg.n_networks,
             "alpha": self.msa_hyper_cfg.alpha,
@@ -412,18 +424,19 @@ class Config:
             "critic_optim": self.msa_hyper_cfg.critic_optim,
             "policy_lr": self.msa_hyper_cfg.policy_lr,
             "policy_optim": self.msa_hyper_cfg.policy_optim,
+            
             # Policy
             "policy/type": self.policy_cfg.policy_type,
             "policy/layer_features": self.policy_cfg.layer_features,
             "policy/activation_fn": self.policy_cfg.activation_fn,
             "policy/target_net_inputs": (
                 self.policy_cfg.target_net_inputs
-                if self.policy_cfg.policy_type == "hper-gaussian"
+                if self.policy_cfg.policy_type == "hyper-gaussian"
                 else None
             ),
             "policy/hypernet_inputs": (
                 self.policy_cfg.hypernet_inputs
-                if self.policy_cfg.policy_type == "hper-gaussian"
+                if self.policy_cfg.policy_type == "hyper-gaussian"
                 else None
             ),
             "policy/hypernet_cfg": (
@@ -432,10 +445,11 @@ class Config:
                 else None
             ),
             # Critic
-            "critic/layer_dims": self.critic_cfg.layer_dims,
+            "critic/layer_features": self.critic_cfg.layer_features,
             "critic/activation_fn": self.critic_cfg.activation_fn,
             "critic/target_net_inputs": self.critic_cfg.target_net_inputs,
             "critic/hypernet_cfg": asdict(self.critic_cfg.hypernet_cfg),
+            
             # Common stuff
             "seed": self.seed,
             "device": self.device,

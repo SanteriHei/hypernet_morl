@@ -460,7 +460,7 @@ class Embedding(nn.Module):
 class HyperNet(nn.Module):
     def __init__(
         self,
-        cfg: structured_configs.CriticConfig
+        cfg: structured_configs.HyperCriticConfig
     ):
         """Hypernetwork for a Q-network, that is used to approximate
         the preference conditioned state-action values Q(s, a, w)
@@ -489,12 +489,12 @@ class HyperNet(nn.Module):
         self._heads = nn.ModuleList([
             Head(target_input_dim=target_input_dim,
                  hidden_dim=cfg.head_hidden_dim,
-                 target_output_dim=cfg.layer_dims[0]
+                 target_output_dim=cfg.layer_features[0]
             )
         ])
 
         for init_std, (in_dim, out_dim) in zip(
-                cfg.head_init_stds, common.iter_pairwise(cfg.layer_dims)
+                cfg.head_init_stds, common.iter_pairwise(cfg.layer_features)
         ):
             self._heads.append(
                 Head(
@@ -508,7 +508,7 @@ class HyperNet(nn.Module):
             self._activation_fn = nets.get_activation_fn(cfg.activation_fn)
 
     @property
-    def config(self) -> structured_configs.CriticConfig:
+    def config(self) -> structured_configs.HyperCriticConfig:
         """Returns the configuration used for the hypernet.
 
         Returns
