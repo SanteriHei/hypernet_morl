@@ -322,6 +322,11 @@ class HistoryBuffer:
 
         # losses
         self._loss_prefs = []
+        self._loss_obs = []
+        self._loss_rewards = []
+        self._loss_actions = []
+        self._loss_next_obs = []
+        self._loss_dones = []
         if n_critics is not None: 
             self._critic_losses = {f"critic_{i}": [] for i in range(n_critics)}
         else:
@@ -330,18 +335,42 @@ class HistoryBuffer:
     
 
     def append_losses(
-        self, 
+        self,
+        *,
+        obs: torch.Tensor | npt.NDArray,
+        actions: torch.Tensor | npt.NDArray,
         prefs: torch.Tensor | npt.NDArray,
+        rewards: torch.Tensor | npt.NDArray,
+        next_obs: torch.Tensor | npt.NDArray,
+        dones: torch.Tensor | npt.NDArray,
         critic_losses: List[torch.Tensor],
         policy_losses: torch.Tensor
     ):
 
+        if isinstance(obs, torch.Tensor):
+            obs = obs.cpu().numpy()
+        if isinstance(actions, torch.Tensor):
+            actions = actions.cpu().numpy()
         if isinstance(prefs, torch.Tensor):
             prefs = prefs.cpu().numpy()
+        if isinstance(rewards, torch.Tensor):
+            rewards = rewards.cpu().numpy()
+        if isinstance(next_obs, torch.Tensor):
+            next_obs = next_obs.cpu().numpy()
+        if isinstance(dones, torch.Tensor):
+            dones = dones.cpu().numpy()
+
+
         if isinstance(policy_losses, torch.Tensor):
             policy_losses = policy_losses.cpu().numpy()
-
+        
+        self._loss_obs.append(obs)
+        self._loss_actions.append(actions)
         self._loss_prefs.append(prefs)
+        self._loss_rewards.append(rewards)
+        self._loss_next_obs.append(next_obs)
+        self._loss_dones.append(dones)
+        
         self._policy_losses.append(policy_losses)
 
         for i, loss in enumerate(critic_losses):
@@ -475,7 +504,15 @@ class HistoryBuffer:
 
         
         # Convert the losses to arrays, and save them
+        obs = np.asarray(self._loss_obs)
+        actions = np.asarray(self._loss_actions)
         prefs = np.asarray(self._loss_prefs)
+        rewards = np.asarray(self._loss_rewards)
+        next_obs = np.asarray(self._loss_next_obs)
+        dones = np.asarray(self._dones)
+
+
+
         policy_losses = np.asarray(self._policy_losses)
         critic_losses = {
                 key: np.asarray(losses) for key, losses in 
@@ -483,7 +520,12 @@ class HistoryBuffer:
         }
         np.savez(
                 save_path,
+                obs=obs,
+                actions=actions,
                 prefs=prefs,
+                rewards=rewards,
+                next_obs=next_obs,
+                dones=dones,
                 policy_losses=policy_losses,
                 **critic_losses
         )

@@ -258,7 +258,14 @@ def _gym_training_loop(
             # If individual losses are required, save them
             if training_cfg.save_individual_losses:
                 history_buffer.append_losses(
-                        batches[-1].prefs, critic_ind_losses, policy_ind_losses
+                        obs=batches[-1].obs,
+                        actions=batches[-1].actions,
+                        prefs=batches[-1].prefs, 
+                        rewards=batches[-1].rewards,
+                        next_obs=batches[-1].next_obs,
+                        dones=batches[-1].dones,
+                        critic_losses=critic_ind_losses, 
+                        policy_losses=policy_ind_losses
                 )
 
 
