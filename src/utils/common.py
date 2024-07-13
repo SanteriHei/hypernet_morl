@@ -321,6 +321,7 @@ class HistoryBuffer:
         self._point_ptr = 0
 
         # losses
+
         self._loss_prefs = []
         self._loss_obs = []
         self._loss_rewards = []
@@ -333,6 +334,17 @@ class HistoryBuffer:
             self._critic_losses = {}
         self._policy_losses = []
     
+   
+    
+    def clear_losses(self):
+        self._loss_obs.clear()
+        self._loss_prefs.clear()
+        self._loss_rewards.clear()
+        self._loss_actions.clear()
+        self._loss_next_obs.clear()
+        self._loss_dones.clear()
+        self._critic_losses = {key: [] for key in self._critic_losses.keys()} 
+        self._policy_losses.clear()
 
     def append_losses(
         self,
@@ -372,7 +384,6 @@ class HistoryBuffer:
         self._loss_dones.append(dones)
         
         self._policy_losses.append(policy_losses)
-
         for i, loss in enumerate(critic_losses):
             if isinstance(loss, torch.Tensor):
                 loss = loss.cpu().numpy()
@@ -390,7 +401,7 @@ class HistoryBuffer:
         done: bool,
         episode: int,
     ):
-        """Appends information from the taken step.j
+        """Appends information from the taken step.
 
         Parameters
         ----------
@@ -518,6 +529,8 @@ class HistoryBuffer:
                 key: np.asarray(losses) for key, losses in 
                 self._critic_losses.items()
         }
+        
+
         np.savez(
                 save_path,
                 obs=obs,

@@ -129,7 +129,7 @@ def train_agent(cfg: structured_configs.Config, agent):
 
         history_buffer.save_history(save_dir_path / "history.npz")
 
-        history_buffer.save_losses(save_dir_path / "losses.npz")
+        history_buffer.save_losses(save_dir_path / "final_losses.npz")
 
         for obj in dynamic_net_params:
             torch.save(
@@ -157,6 +157,7 @@ def _gym_training_loop(
     logger: logging.Logger,
     wandb_run: log.WandbRun,
     seed: int | None = None,
+    loss_saving_freq: int = 500
 ):
     """A common training loop for the mo-gymnasiunm environments.
 
@@ -192,7 +193,8 @@ def _gym_training_loop(
         n_eval_prefs=training_cfg.n_eval_prefs,
         obs_dim=dims["obs_dim"],
         reward_dim=dims["reward_dim"],
-        action_dim=dims["action_dim"]
+        action_dim=dims["action_dim"],
+        n_critics=agent.config.n_networks
     )
 
     # Store the dynamic network weights
@@ -267,7 +269,14 @@ def _gym_training_loop(
                         critic_losses=critic_ind_losses, 
                         policy_losses=policy_ind_losses
                 )
-
+                
+                # Ensure that the losses do not eat up all the memory
+                if global_step % loss_saving_freq == 0 and global_step > 0:
+                    save_dir_path = pathlib.Path(training_cfg.save_path)
+                    history_buffer.save_losses(
+                        save_dir_path / f"losses_{global_step}.npz"  
+                    )
+                    history_buffer.clear_losses()
 
 
             # Log metrics
