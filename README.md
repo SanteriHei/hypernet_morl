@@ -13,8 +13,8 @@
 In this thesis, the use of hypernetworks in multi-objective reinforcement learning is explored by
 augmenting the critic network with a hypernetwork. Two different configurations for the target network were explored.
 <p float="left">
-  <img src="docs/model_structure.svg" width=350/>
-  <img src="docs/architecture.svg" width=350/>
+  <img src="docs/model_structure.png" width=350/>
+  <img src="docs/architecture.png" width=350/>
 </p>
 
 
