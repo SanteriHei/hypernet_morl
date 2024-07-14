@@ -81,7 +81,7 @@ configuration options either via cli (recommended) or by updating configs/sessio
  - session_cfg.run_name
 
 > [!CAUTION]
-> The wandb logging can be turned off by adding via cli option `training_cfg.log_to_wandb=False`.
+> The wandb logging can be turned off via cli option `training_cfg.log_to_wandb=False`.
 > However, this is highly __discouraged__, since in this case the progress is only
 > printed to the console, and __NOT__ stored anywhere.
 
