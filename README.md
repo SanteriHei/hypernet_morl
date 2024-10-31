@@ -4,7 +4,7 @@
   <p align="center">
     Implementation for the MSc thesis "Generalizing Pareto optimal policies in multi-objective reinforcement learning"
     </br>
-    <a href="https://santerihei.github.io/hypernet_morl_presentation/"><strong> Presentation slides</strong></a> | <a href="null"> <strong> Thesis</strong> </a>
+    <a href="https://santerihei.github.io/hypernet_morl_presentation/"><strong> Presentation slides</strong></a> | <a href="https://urn.fi/URN:NBN:fi:tuni-202409058563"> <strong> Thesis</strong> </a>
   </p>
 </div>
 
